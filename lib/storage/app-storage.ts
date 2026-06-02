@@ -5,6 +5,7 @@ import type { SearchHistory, SearchScope } from "@/types/search";
 import type { ScoreRecord, ScoreTemplate } from "@/types/scoring";
 import type { UserSettings } from "@/types/settings";
 import type { Tag } from "@/types/tag";
+import type { ToolboxIcon } from "@/types/toolbox";
 import type { Topic } from "@/types/topic";
 
 type StoredEntity = {
@@ -19,6 +20,7 @@ type CreateInput<T extends StoredEntity> = Omit<T, "id" | "createdAt" | "updated
 type UpdateInput<T extends StoredEntity> = Partial<Omit<T, "id" | "createdAt">>;
 
 const STORE_ERROR_MESSAGE = "本地数据读写失败，请稍后重试。";
+const ACTIVE_STORAGE_USER_ID_KEY = "media-tool.auth.activeUserId";
 
 function assertClientStorage() {
   if (typeof window === "undefined" || !window.localStorage) {
@@ -44,11 +46,35 @@ function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+export function setActiveStorageUserId(userId: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!userId) {
+    window.localStorage.removeItem(ACTIVE_STORAGE_USER_ID_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(ACTIVE_STORAGE_USER_ID_KEY, userId);
+}
+
+function getScopedStorageKey(key: string) {
+  if (typeof window === "undefined") {
+    return key;
+  }
+
+  const activeUserId = window.localStorage.getItem(ACTIVE_STORAGE_USER_ID_KEY);
+
+  return activeUserId ? `${key}.${activeUserId}` : key;
+}
+
 function readCollection<T>(key: string, fallback: T[]): T[] {
   try {
     assertClientStorage();
 
-    const rawValue = window.localStorage.getItem(key);
+    const scopedKey = getScopedStorageKey(key);
+    const rawValue = window.localStorage.getItem(scopedKey);
 
     if (!rawValue) {
       writeCollection(key, fallback);
@@ -71,7 +97,7 @@ function readCollection<T>(key: string, fallback: T[]): T[] {
 function writeCollection<T>(key: string, items: T[]) {
   try {
     assertClientStorage();
-    window.localStorage.setItem(key, JSON.stringify(items));
+    window.localStorage.setItem(getScopedStorageKey(key), JSON.stringify(items));
   } catch (error) {
     throw createStorageError(error);
   }
@@ -81,7 +107,8 @@ function readValue<T>(key: string, fallback: T): T {
   try {
     assertClientStorage();
 
-    const rawValue = window.localStorage.getItem(key);
+    const scopedKey = getScopedStorageKey(key);
+    const rawValue = window.localStorage.getItem(scopedKey);
 
     if (!rawValue) {
       writeValue(key, fallback);
@@ -97,7 +124,7 @@ function readValue<T>(key: string, fallback: T): T {
 function writeValue<T>(key: string, value: T) {
   try {
     assertClientStorage();
-    window.localStorage.setItem(key, JSON.stringify(value));
+    window.localStorage.setItem(getScopedStorageKey(key), JSON.stringify(value));
   } catch (error) {
     throw createStorageError(error);
   }
@@ -251,6 +278,27 @@ export function createReview(input: CreateInput<Review>) {
 
 export function updateReview(id: string, input: UpdateInput<Review>) {
   return updateEntity<Review>(STORAGE_KEYS.reviews, seedData.reviews, id, input);
+}
+
+export function getToolboxIcons() {
+  return readCollection<ToolboxIcon>(STORAGE_KEYS.toolboxIcons, []);
+}
+
+export function createToolboxIcon(input: CreateInput<ToolboxIcon>) {
+  return createEntity<ToolboxIcon>(
+    STORAGE_KEYS.toolboxIcons,
+    [],
+    input,
+    "toolbox-icon"
+  );
+}
+
+export function updateToolboxIcon(id: string, input: UpdateInput<ToolboxIcon>) {
+  return updateEntity<ToolboxIcon>(STORAGE_KEYS.toolboxIcons, [], id, input);
+}
+
+export function deleteToolboxIcon(id: string) {
+  deleteEntity<ToolboxIcon>(STORAGE_KEYS.toolboxIcons, [], id);
 }
 
 export function getSearchHistory(scope: SearchScope) {

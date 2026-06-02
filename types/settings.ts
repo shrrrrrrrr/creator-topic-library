@@ -13,4 +13,5 @@ export type UserSettings = {
   nickname: string;
   avatarUrl?: string;
   themeColor: ThemeColor;
+  toolboxWallpaperUrl?: string;
 };

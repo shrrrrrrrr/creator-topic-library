@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { STORAGE_KEYS } from "@/lib/constants";
 import type { ThemeColor, UserSettings } from "@/types/settings";
 
@@ -116,6 +123,17 @@ export const themes: Record<ThemeColor, ThemeDefinition> = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+const baseThemeVariables = {
+  background: "48 29% 97%",
+  foreground: "215 28% 17%",
+  card: "0 0% 100%",
+  cardForeground: "215 28% 17%",
+  border: "214 21% 88%",
+  input: "214 21% 88%",
+  muted: "210 20% 94%",
+  mutedForeground: "215 16% 47%",
+};
+
 function readStoredThemeColor(): ThemeColor {
   if (typeof window === "undefined") {
     return defaultSettings.themeColor;
@@ -138,11 +156,7 @@ function readStoredThemeColor(): ThemeColor {
   }
 }
 
-function setVariable(name: string, value: string | undefined) {
-  if (!value) {
-    return;
-  }
-
+function setVariable(name: string, value: string) {
   document.documentElement.style.setProperty(name, value);
 }
 
@@ -154,14 +168,20 @@ function applyThemeVariables(themeColor: ThemeColor) {
   setVariable("--ring", theme.primary);
   setVariable("--accent", theme.accent);
   setVariable("--accent-foreground", theme.accentForeground);
-  setVariable("--background", theme.background);
-  setVariable("--foreground", theme.foreground);
-  setVariable("--card", theme.card);
-  setVariable("--card-foreground", theme.cardForeground);
-  setVariable("--border", theme.border);
-  setVariable("--input", theme.input);
-  setVariable("--muted", theme.muted);
-  setVariable("--muted-foreground", theme.mutedForeground);
+  setVariable("--background", theme.background ?? baseThemeVariables.background);
+  setVariable("--foreground", theme.foreground ?? baseThemeVariables.foreground);
+  setVariable("--card", theme.card ?? baseThemeVariables.card);
+  setVariable(
+    "--card-foreground",
+    theme.cardForeground ?? baseThemeVariables.cardForeground
+  );
+  setVariable("--border", theme.border ?? baseThemeVariables.border);
+  setVariable("--input", theme.input ?? baseThemeVariables.input);
+  setVariable("--muted", theme.muted ?? baseThemeVariables.muted);
+  setVariable(
+    "--muted-foreground",
+    theme.mutedForeground ?? baseThemeVariables.mutedForeground
+  );
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -175,16 +195,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     applyThemeVariables(storedThemeColor);
   }, []);
 
+  const applyTheme = useCallback((themeColor: ThemeColor) => {
+    setCurrentThemeColor(themeColor);
+    applyThemeVariables(themeColor);
+  }, []);
+
   const value = useMemo<ThemeContextValue>(
     () => ({
-      applyTheme: (themeColor) => {
-        setCurrentThemeColor(themeColor);
-        applyThemeVariables(themeColor);
-      },
+      applyTheme,
       currentThemeColor,
       themes,
     }),
-    [currentThemeColor]
+    [applyTheme, currentThemeColor]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

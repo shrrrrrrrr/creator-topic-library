@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell/app-shell";
 import { ThemeProvider } from "@/components/app-shell/theme-provider";
+import { AuthProvider } from "@/features/auth/auth-provider";
 
 export const metadata: Metadata = {
   title: "自媒体选题库与评分工具",
@@ -17,7 +18,9 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body>
         <ThemeProvider>
-          <AppShell>{children}</AppShell>
+          <AuthProvider>
+            <AppShell>{children}</AppShell>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -15,7 +15,8 @@ import {
   getTopics,
   updateReview,
   updateTopic,
-} from "@/lib/storage/app-storage";
+} from "@/lib/data/repository";
+import { MarkdownReviewEditor } from "@/features/reviews/components/markdown-review-editor";
 import type { ReferenceLink } from "@/types/common";
 import type { Review } from "@/types/review";
 import type { Topic, TopicHeading } from "@/types/topic";
@@ -78,10 +79,64 @@ function ensureNumber(value: number | undefined) {
   return Number.isFinite(value) ? Number(value) : 0;
 }
 
+function createLegacyMarkdown(review: Review) {
+  const legacyParts: string[] = [];
+
+  if (review.headings.length > 0) {
+    legacyParts.push(
+      "## 旧版多级标题",
+      review.headings
+        .map((heading) => `${"#".repeat(heading.level)} ${heading.text}`)
+        .join("\n")
+    );
+  }
+
+  if (review.imageLinks.length > 0) {
+    legacyParts.push(
+      "## 旧版图片链接",
+      review.imageLinks
+        .map((link) => {
+          const label = link.label || "图片";
+          const note = link.note ? `\n备注：${link.note}` : "";
+
+          return `![${label}](${link.url})${note}`;
+        })
+        .join("\n\n")
+    );
+  }
+
+  if (review.normalLinks.length > 0) {
+    legacyParts.push(
+      "## 旧版普通链接",
+      review.normalLinks
+        .map((link) => {
+          const label = link.label || link.url || "链接";
+          const note = link.note ? `\n备注：${link.note}` : "";
+
+          return `[${label}](${link.url})${note}`;
+        })
+        .join("\n\n")
+    );
+  }
+
+  return legacyParts.join("\n\n");
+}
+
+function createMarkdownBody(review: Review) {
+  const body = review.body ?? "";
+  const legacyMarkdown = createLegacyMarkdown(review);
+
+  if (!legacyMarkdown || body.includes("## 旧版多级标题") || body.includes("## 旧版图片链接") || body.includes("## 旧版普通链接")) {
+    return body;
+  }
+
+  return [body, legacyMarkdown].filter((part) => part.trim()).join("\n\n");
+}
+
 function reviewToFormState(review: Review): ReviewFormState {
   return {
     title: review.title,
-    body: review.body ?? "",
+    body: createMarkdownBody(review),
     headings: review.headings ?? [],
     imageLinks: review.imageLinks ?? [],
     normalLinks: review.normalLinks ?? [],
@@ -179,53 +234,70 @@ export function ReviewEditor({ mode }: ReviewEditorProps) {
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const topics = getTopics();
-      const reviews = getReviews();
+    let isMounted = true;
 
-      if (mode === "topic") {
-        const currentTopic = topics.find((item) => item.id === params.topicId) ?? null;
-        const existingReview =
-          reviews.find((item) => item.topicId === params.topicId) ?? null;
+    async function loadData() {
+      try {
+        const [topics, reviews] = await Promise.all([getTopics(), getReviews()]);
 
-        setTopic(currentTopic);
-        setReview(existingReview);
-        setFormState(
-          existingReview
-            ? reviewToFormState(existingReview)
-            : {
-                ...emptyFormState,
-                title: createDefaultTitle(currentTopic),
-              }
-        );
+        if (!isMounted) {
+          return;
+        }
+
+        if (mode === "topic") {
+          const currentTopic = topics.find((item) => item.id === params.topicId) ?? null;
+          const existingReview =
+            reviews.find((item) => item.topicId === params.topicId) ?? null;
+
+          setTopic(currentTopic);
+          setReview(existingReview);
+          setFormState(
+            existingReview
+              ? reviewToFormState(existingReview)
+              : {
+                  ...emptyFormState,
+                  title: createDefaultTitle(currentTopic),
+                }
+          );
+        }
+
+        if (mode === "edit") {
+          const existingReview = reviews.find((item) => item.id === params.id) ?? null;
+          const currentTopic = existingReview?.topicId
+            ? topics.find((item) => item.id === existingReview.topicId) ?? null
+            : null;
+
+          setTopic(currentTopic);
+          setReview(existingReview);
+          setFormState(
+            existingReview ? reviewToFormState(existingReview) : emptyFormState
+          );
+        }
+
+        if (mode === "create-standalone") {
+          setTopic(null);
+          setReview(null);
+          setFormState({
+            ...emptyFormState,
+            title: createDefaultTitle(null),
+          });
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error instanceof Error ? error.message : "复盘编辑器加载失败。");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
-
-      if (mode === "edit") {
-        const existingReview = reviews.find((item) => item.id === params.id) ?? null;
-        const currentTopic = existingReview?.topicId
-          ? topics.find((item) => item.id === existingReview.topicId) ?? null
-          : null;
-
-        setTopic(currentTopic);
-        setReview(existingReview);
-        setFormState(
-          existingReview ? reviewToFormState(existingReview) : emptyFormState
-        );
-      }
-
-      if (mode === "create-standalone") {
-        setTopic(null);
-        setReview(null);
-        setFormState({
-          ...emptyFormState,
-          title: createDefaultTitle(null),
-        });
-      }
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "复盘编辑器加载失败。");
-    } finally {
-      setIsLoading(false);
     }
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [mode, params.id, params.topicId]);
 
   function updateField<K extends keyof ReviewFormState>(
@@ -236,33 +308,6 @@ export function ReviewEditor({ mode }: ReviewEditorProps) {
       ...previousState,
       [key]: value,
     }));
-  }
-
-  function addHeading() {
-    updateField("headings", [
-      ...formState.headings,
-      {
-        id: createId("review-heading"),
-        level: 2,
-        text: "",
-      },
-    ]);
-  }
-
-  function updateHeading(id: string, patch: Partial<TopicHeading>) {
-    updateField(
-      "headings",
-      formState.headings.map((heading) =>
-        heading.id === id ? { ...heading, ...patch } : heading
-      )
-    );
-  }
-
-  function removeHeading(id: string) {
-    updateField(
-      "headings",
-      formState.headings.filter((heading) => heading.id !== id)
-    );
   }
 
   function addLink(field: "imageLinks" | "normalLinks" | "dataDashboardLinks") {
@@ -298,7 +343,7 @@ export function ReviewEditor({ mode }: ReviewEditorProps) {
     );
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setValidationMessage(null);
     setErrorMessage(null);
@@ -319,11 +364,11 @@ export function ReviewEditor({ mode }: ReviewEditorProps) {
 
     try {
       const savedReview = review
-        ? updateReview(review.id, payload)
-        : createReview(payload);
+        ? await updateReview(review.id, payload)
+        : await createReview(payload);
 
       if (topicId) {
-        updateTopic(topicId, {
+        await updateTopic(topicId, {
           status: "reviewed",
         });
       }
@@ -460,75 +505,13 @@ export function ReviewEditor({ mode }: ReviewEditorProps) {
                 value={formState.title}
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="review-body">
-                正文
-              </label>
-              <textarea
-                className="min-h-36 w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-6 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                id="review-body"
-                onChange={(event) => updateField("body", event.target.value)}
-                placeholder="记录过程、观察和关键结论"
-                value={formState.body}
-              />
-            </div>
           </section>
 
-          <section className="space-y-3 rounded-lg border border-border bg-card p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold">多级标题</h2>
-              <Button onClick={addHeading} size="sm" type="button" variant="secondary">
-                <Plus aria-hidden="true" className="size-4" />
-                添加
-              </Button>
-            </div>
-            {formState.headings.length > 0 ? (
-              <div className="space-y-3">
-                {formState.headings.map((heading) => (
-                  <div
-                    className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-[96px_1fr_auto]"
-                    key={heading.id}
-                  >
-                    <select
-                      className="h-10 rounded-md border border-input bg-background px-2 text-sm"
-                      onChange={(event) =>
-                        updateHeading(heading.id, {
-                          level: Number(event.target.value) as TopicHeading["level"],
-                        })
-                      }
-                      value={heading.level}
-                    >
-                      <option value={1}>H1</option>
-                      <option value={2}>H2</option>
-                      <option value={3}>H3</option>
-                    </select>
-                    <input
-                      className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                      onChange={(event) =>
-                        updateHeading(heading.id, { text: event.target.value })
-                      }
-                      placeholder="标题内容"
-                      value={heading.text}
-                    />
-                    <Button
-                      onClick={() => removeHeading(heading.id)}
-                      size="icon"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Trash2 aria-hidden="true" className="size-4" />
-                      <span className="sr-only">删除标题</span>
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">暂无多级标题</p>
-            )}
-          </section>
+          <MarkdownReviewEditor
+            onChange={(value) => updateField("body", value)}
+            value={formState.body}
+          />
 
-          {renderLinks("图片链接", "imageLinks", "图片链接")}
-          {renderLinks("普通链接", "normalLinks", "普通链接")}
           {renderLinks("数据后台链接", "dataDashboardLinks", "数据后台链接")}
 
           <section className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
@@ -616,3 +599,4 @@ export function ReviewEditor({ mode }: ReviewEditorProps) {
     </main>
   );
 }
+

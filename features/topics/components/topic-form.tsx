@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -9,7 +9,7 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
-import { createTopic, getTags, getTopics, updateTopic } from "@/lib/storage/app-storage";
+import { createTopic, getTags, getTopics, updateTopic } from "@/lib/data/repository";
 import { cn } from "@/lib/utils";
 import type { MaterialLink, ReferenceLink } from "@/types/common";
 import type { Tag } from "@/types/tag";
@@ -116,25 +116,51 @@ export function TopicForm({ mode }: TopicFormProps) {
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      setTags(getTags());
+    let isMounted = true;
 
-      if (mode === "edit") {
-        const topic = getTopics().find((item) => item.id === params.id);
+    async function loadData() {
+      try {
+        const nextTags = await getTags();
 
-        if (!topic) {
-          setCurrentTopic(null);
+        if (!isMounted) {
           return;
         }
 
-        setCurrentTopic(topic);
-        setFormState(topicToFormState(topic));
+        setTags(nextTags);
+
+        if (mode === "edit") {
+          const topic = (await getTopics()).find((item) => item.id === params.id);
+
+          if (!isMounted) {
+            return;
+          }
+
+          if (!topic) {
+            setCurrentTopic(null);
+            return;
+          }
+
+          setCurrentTopic(topic);
+          setFormState(topicToFormState(topic));
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "选题表单加载失败。"
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "选题表单加载失败。");
-    } finally {
-      setIsLoading(false);
     }
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [mode, params.id]);
 
   const pageTitle = mode === "create" ? "新建选题" : "编辑选题";
@@ -248,7 +274,7 @@ export function TopicForm({ mode }: TopicFormProps) {
     updateField("status", checked ? "completed" : "planned");
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setValidationMessage(null);
     setErrorMessage(null);
@@ -262,7 +288,7 @@ export function TopicForm({ mode }: TopicFormProps) {
 
     try {
       if (mode === "create") {
-        const createdTopic = createTopic(nextState);
+        const createdTopic = await createTopic(nextState);
         router.push(`/topics/${createdTopic.id}`);
         return;
       }
@@ -272,7 +298,7 @@ export function TopicForm({ mode }: TopicFormProps) {
         return;
       }
 
-      updateTopic(currentTopic.id, nextState);
+      await updateTopic(currentTopic.id, nextState);
       router.push(`/topics/${currentTopic.id}`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "选题保存失败。");
@@ -596,3 +622,4 @@ export function TopicForm({ mode }: TopicFormProps) {
     </main>
   );
 }
+

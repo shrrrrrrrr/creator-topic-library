@@ -6,6 +6,7 @@ export const STORAGE_KEYS = {
   scoreTemplates: "media-tool.scoreTemplates",
   scoreRecords: "media-tool.scoreRecords",
   reviews: "media-tool.reviews",
+  toolboxIcons: "media-tool.toolboxIcons",
   searchHistory: "media-tool.searchHistory",
   userSettings: "media-tool.userSettings",
 } as const;

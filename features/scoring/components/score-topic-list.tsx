@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -8,11 +8,12 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
+import { useDataSyncVersion } from "@/features/sync/data-sync-provider";
 import {
   getScoreRecords,
   getTags,
   getTopics,
-} from "@/lib/storage/app-storage";
+} from "@/lib/data/repository";
 import type { ScoreRecord } from "@/types/scoring";
 import type { Tag } from "@/types/tag";
 import type { Topic, TopicStatus } from "@/types/topic";
@@ -60,18 +61,43 @@ export function ScoreTopicList() {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const syncVersion = useDataSyncVersion();
 
   useEffect(() => {
-    try {
-      setTopics(getTopics());
-      setTags(getTags());
-      setScoreRecords(getScoreRecords());
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "评分页面加载失败。");
-    } finally {
-      setIsLoading(false);
+    let isMounted = true;
+
+    async function loadData() {
+      try {
+        const [nextTopics, nextTags, nextScoreRecords] = await Promise.all([
+          getTopics(),
+          getTags(),
+          getScoreRecords(),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setTopics(nextTopics);
+        setTags(nextTags);
+        setScoreRecords(nextScoreRecords);
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error instanceof Error ? error.message : "评分页面加载失败。");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
-  }, []);
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [syncVersion]);
 
   const tagMap = useMemo(() => new Map(tags.map((tag) => [tag.id, tag])), [tags]);
   const filteredTopics = useMemo(() => filterTopics(topics, query), [query, topics]);
@@ -211,3 +237,5 @@ export function ScoreTopicList() {
     </main>
   );
 }
+
+

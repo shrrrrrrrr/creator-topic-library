@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -8,6 +8,7 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
+import { useDataSyncVersion } from "@/features/sync/data-sync-provider";
 import {
   createTag,
   deleteTag,
@@ -15,7 +16,7 @@ import {
   getTopics,
   updateTag,
   updateTopic,
-} from "@/lib/storage/app-storage";
+} from "@/lib/data/repository";
 import { cn } from "@/lib/utils";
 import type { Tag } from "@/types/tag";
 import type { Topic } from "@/types/topic";
@@ -53,17 +54,32 @@ export function TagManager() {
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const syncVersion = useDataSyncVersion();
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      refreshData();
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "标签加载失败。");
-    } finally {
-      setIsLoading(false);
+    let isMounted = true;
+
+    async function loadData() {
+      try {
+        await refreshData();
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error instanceof Error ? error.message : "标签加载失败。");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
-  }, []);
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [syncVersion]);
 
   const editingTag = useMemo(
     () => tags.find((tag) => tag.id === editingTagId),
@@ -75,9 +91,10 @@ export function TagManager() {
     [tags, topics]
   );
 
-  function refreshData() {
-    setTags(getTags());
-    setTopics(getTopics());
+  async function refreshData() {
+    const [nextTags, nextTopics] = await Promise.all([getTags(), getTopics()]);
+    setTags(nextTags);
+    setTopics(nextTopics);
   }
 
   function resetForm() {
@@ -114,7 +131,7 @@ export function TagManager() {
     return null;
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
 
@@ -133,25 +150,25 @@ export function TagManager() {
 
     try {
       if (editingTagId) {
-        updateTag(editingTagId, payload);
+        await updateTag(editingTagId, payload);
       } else {
-        createTag(payload);
+        await createTag(payload);
       }
 
-      refreshData();
+      await refreshData();
       resetForm();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "标签保存失败。");
     }
   }
 
-  function handleDelete(tag: Tag) {
+  async function handleDelete(tag: Tag) {
     setErrorMessage(null);
     const usageCount = usageMap.get(tag.id) ?? 0;
 
     if (usageCount > 0) {
       const shouldDelete = window.confirm(
-        `标签“${tag.name}”正在被 ${usageCount} 个选题使用。删除后会从这些选题中移除该标签，确定继续吗？`
+        `标签 "${tag.name}" 正在被 ${usageCount} 个选题使用。删除后会从这些选题中移除，确定继续吗？`
       );
 
       if (!shouldDelete) {
@@ -161,17 +178,19 @@ export function TagManager() {
 
     try {
       if (usageCount > 0) {
-        topics
-          .filter((topic) => topic.tagIds.includes(tag.id))
-          .forEach((topic) => {
-            updateTopic(topic.id, {
-              tagIds: topic.tagIds.filter((tagId) => tagId !== tag.id),
-            });
-          });
+        await Promise.all(
+          topics
+            .filter((topic) => topic.tagIds.includes(tag.id))
+            .map((topic) =>
+              updateTopic(topic.id, {
+                tagIds: topic.tagIds.filter((tagId) => tagId !== tag.id),
+              })
+            )
+        );
       }
 
-      deleteTag(tag.id);
-      refreshData();
+      await deleteTag(tag.id);
+      await refreshData();
 
       if (editingTagId === tag.id) {
         resetForm();
@@ -371,3 +390,5 @@ export function TagManager() {
     </main>
   );
 }
+
+

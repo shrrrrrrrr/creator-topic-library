@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -9,13 +9,14 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
+import { useDataSyncVersion } from "@/features/sync/data-sync-provider";
 import {
   deleteTopic,
   getScoreRecords,
   getTags,
   getTopics,
   updateTopic,
-} from "@/lib/storage/app-storage";
+} from "@/lib/data/repository";
 import type { MaterialLink } from "@/types/common";
 import type { ScoreRecord } from "@/types/scoring";
 import type { Tag } from "@/types/tag";
@@ -68,43 +69,70 @@ export function TopicDetail() {
   const [scoreRecords, setScoreRecords] = useState<ScoreRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const syncVersion = useDataSyncVersion();
 
   useEffect(() => {
-    try {
-      setTopics(getTopics());
-      setTags(getTags());
-      setScoreRecords(getScoreRecords());
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "选题详情加载失败。");
-    } finally {
-      setIsLoading(false);
+    let isMounted = true;
+
+    async function loadData() {
+      try {
+        const [nextTopics, nextTags, nextScoreRecords] = await Promise.all([
+          getTopics(),
+          getTags(),
+          getScoreRecords(),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setTopics(nextTopics);
+        setTags(nextTags);
+        setScoreRecords(nextScoreRecords);
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "选题详情加载失败。"
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
-  }, []);
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [syncVersion]);
 
   const topic = topics.find((item) => item.id === params.id);
   const tagMap = useMemo(() => new Map(tags.map((tag) => [tag.id, tag])), [tags]);
   const scoreRecord = topic ? getTopicScoreRecord(topic, scoreRecords) : undefined;
 
-  function refreshTopics() {
-    setTopics(getTopics());
+  async function refreshTopics() {
+    setTopics(await getTopics());
   }
 
-  function handleCompleteChange(checked: boolean) {
+  async function handleCompleteChange(checked: boolean) {
     if (!topic) {
       return;
     }
 
     try {
-      updateTopic(topic.id, {
+      await updateTopic(topic.id, {
         status: checked ? "completed" : "planned",
       });
-      refreshTopics();
+      await refreshTopics();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "状态更新失败。");
     }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!topic) {
       return;
     }
@@ -116,7 +144,7 @@ export function TopicDetail() {
     }
 
     try {
-      deleteTopic(topic.id);
+      await deleteTopic(topic.id);
       router.push("/");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "选题删除失败。");
@@ -321,3 +349,5 @@ export function TopicDetail() {
     </main>
   );
 }
+
+

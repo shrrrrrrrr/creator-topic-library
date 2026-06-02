@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -8,7 +8,8 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
-import { getReviews, getTopics } from "@/lib/storage/app-storage";
+import { useDataSyncVersion } from "@/features/sync/data-sync-provider";
+import { getReviews, getTopics } from "@/lib/data/repository";
 import type { Review } from "@/types/review";
 import type { Topic } from "@/types/topic";
 
@@ -34,17 +35,41 @@ export function ReviewHome() {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const syncVersion = useDataSyncVersion();
 
   useEffect(() => {
-    try {
-      setTopics(getTopics());
-      setReviews(getReviews());
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "复盘页面加载失败。");
-    } finally {
-      setIsLoading(false);
+    let isMounted = true;
+
+    async function loadData() {
+      try {
+        const [nextTopics, nextReviews] = await Promise.all([
+          getTopics(),
+          getReviews(),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setTopics(nextTopics);
+        setReviews(nextReviews);
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error instanceof Error ? error.message : "复盘加载失败。");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
-  }, []);
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [syncVersion]);
 
   const reviewableTopics = useMemo(
     () => topics.filter(isReviewableTopic),
@@ -203,3 +228,5 @@ export function ReviewHome() {
     </main>
   );
 }
+
+

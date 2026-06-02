@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -16,7 +16,7 @@ import {
   getTopics,
   updateScoreRecord,
   updateTopic,
-} from "@/lib/storage/app-storage";
+} from "@/lib/data/repository";
 import { cn } from "@/lib/utils";
 import type {
   BonusItem,
@@ -132,34 +132,52 @@ export function TopicScoringForm() {
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const storedTopics = getTopics();
-      const storedTemplates = getScoreTemplates();
-      const storedScoreRecords = getScoreRecords();
-      const currentTopic = storedTopics.find((item) => item.id === params.id) ?? null;
+    let isMounted = true;
 
-      setTopic(currentTopic);
-      setTemplates(storedTemplates);
-      setScoreRecords(storedScoreRecords);
+    async function loadData() {
+      try {
+        const [storedTopics, storedTemplates, storedScoreRecords] =
+          await Promise.all([getTopics(), getScoreTemplates(), getScoreRecords()]);
+        const currentTopic =
+          storedTopics.find((item) => item.id === params.id) ?? null;
 
-      if (currentTopic) {
-        const latestRecord = getTopicScoreRecord(currentTopic, storedScoreRecords);
-        const fallbackTemplateId = storedTemplates[0]?.id ?? "";
-        const initialTemplateId = latestRecord?.templateId ?? fallbackTemplateId;
+        if (!isMounted) {
+          return;
+        }
 
-        setSelectedTemplateId(initialTemplateId);
+        setTopic(currentTopic);
+        setTemplates(storedTemplates);
+        setScoreRecords(storedScoreRecords);
 
-        if (latestRecord) {
-          setCriterionScores(latestRecord.criterionScores);
-          setSelectedBonusItemIds(latestRecord.bonusItemIds);
-          setCustomBonusItems(latestRecord.customBonusItems ?? []);
+        if (currentTopic) {
+          const latestRecord = getTopicScoreRecord(currentTopic, storedScoreRecords);
+          const fallbackTemplateId = storedTemplates[0]?.id ?? "";
+          const initialTemplateId = latestRecord?.templateId ?? fallbackTemplateId;
+
+          setSelectedTemplateId(initialTemplateId);
+
+          if (latestRecord) {
+            setCriterionScores(latestRecord.criterionScores);
+            setSelectedBonusItemIds(latestRecord.bonusItemIds);
+            setCustomBonusItems(latestRecord.customBonusItems ?? []);
+          }
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error instanceof Error ? error.message : "评分页面加载失败。");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
         }
       }
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "评分页面加载失败。");
-    } finally {
-      setIsLoading(false);
     }
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [params.id]);
 
   const selectedTemplate = templates.find(
@@ -259,7 +277,7 @@ export function TopicScoringForm() {
     );
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
     setValidationMessage(null);
@@ -270,7 +288,7 @@ export function TopicScoringForm() {
     }
 
     if (!selectedTemplate) {
-      setValidationMessage("请先选择评分模板。");
+      setValidationMessage("请选择评分模板。");
       return;
     }
 
@@ -291,7 +309,7 @@ export function TopicScoringForm() {
     );
 
     if (invalidCustomBonusItem) {
-      setValidationMessage("自定义加分项必须包含描述和有效分数。");
+      setValidationMessage("额外加分项需要填写描述和有效分数。");
       return;
     }
 
@@ -321,10 +339,10 @@ export function TopicScoringForm() {
 
     try {
       const savedRecord = existingRecordForTemplate
-        ? updateScoreRecord(existingRecordForTemplate.id, payload)
-        : createScoreRecord(payload);
+        ? await updateScoreRecord(existingRecordForTemplate.id, payload)
+        : await createScoreRecord(payload);
 
-      updateTopic(topic.id, {
+      await updateTopic(topic.id, {
         latestScoreRecordId: savedRecord.id,
       });
       router.push("/");
@@ -577,3 +595,4 @@ export function TopicScoringForm() {
     </main>
   );
 }
+

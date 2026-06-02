@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -15,13 +15,14 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
+import { useDataSyncVersion } from "@/features/sync/data-sync-provider";
 import {
   getScoreRecords,
   getSearchHistory,
   getTags,
   getTopics,
   saveSearchHistory,
-} from "@/lib/storage/app-storage";
+} from "@/lib/data/repository";
 import { cn } from "@/lib/utils";
 import type { SearchHistory } from "@/types/search";
 import type { ScoreLevel, ScoreRecord } from "@/types/scoring";
@@ -154,19 +155,48 @@ export function TopicLibrary() {
   const [selectedGroupId, setSelectedGroupId] = useState<TopicGroupId>("S");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const syncVersion = useDataSyncVersion();
 
   useEffect(() => {
-    try {
-      setTopics(getTopics());
-      setTags(getTags());
-      setScoreRecords(getScoreRecords());
-      setSearchHistory(getSearchHistory("topics"));
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "选题库加载失败。");
-    } finally {
-      setIsLoading(false);
+    let isMounted = true;
+
+    async function loadData() {
+      try {
+        const [nextTopics, nextTags, nextScoreRecords, nextSearchHistory] =
+          await Promise.all([
+            getTopics(),
+            getTags(),
+            getScoreRecords(),
+            getSearchHistory("topics"),
+          ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setTopics(nextTopics);
+        setTags(nextTags);
+        setScoreRecords(nextScoreRecords);
+        setSearchHistory(nextSearchHistory);
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "选题库加载失败。"
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
-  }, []);
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [syncVersion]);
 
   const topicsWithScore = useMemo<TopicWithScore[]>(
     () =>
@@ -194,13 +224,15 @@ export function TopicLibrary() {
 
   const tagMap = useMemo(() => new Map(tags.map((tag) => [tag.id, tag])), [tags]);
 
-  function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     try {
-      setSearchHistory(saveSearchHistory("topics", query));
+      setSearchHistory(await saveSearchHistory("topics", query));
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "搜索记录保存失败。");
+      setErrorMessage(
+        error instanceof Error ? error.message : "搜索记录保存失败。"
+      );
     }
   }
 
@@ -420,3 +452,5 @@ export function TopicLibrary() {
     </main>
   );
 }
+
+

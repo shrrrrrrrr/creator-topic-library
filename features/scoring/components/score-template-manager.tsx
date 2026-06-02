@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -8,11 +8,12 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
+import { useDataSyncVersion } from "@/features/sync/data-sync-provider";
 import {
   createScoreTemplate,
   getScoreTemplates,
   updateScoreTemplate,
-} from "@/lib/storage/app-storage";
+} from "@/lib/data/repository";
 import { cn } from "@/lib/utils";
 import type { BonusItem, ScoreCriterion, ScoreTemplate } from "@/types/scoring";
 
@@ -122,19 +123,41 @@ export function ScoreTemplateManager() {
   const [formState, setFormState] = useState<ScoreTemplateFormState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const syncVersion = useDataSyncVersion();
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const storedTemplates = getScoreTemplates();
-      setTemplates(storedTemplates);
-      setFormState(createDefaultFormState(storedTemplates));
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "评分模板加载失败。");
-    } finally {
-      setIsLoading(false);
+    let isMounted = true;
+
+    async function loadData() {
+      try {
+        const storedTemplates = await getScoreTemplates();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setTemplates(storedTemplates);
+        setFormState(createDefaultFormState(storedTemplates));
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "评分模板加载失败。"
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
-  }, []);
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [syncVersion]);
 
   const editingTemplate = useMemo(
     () => templates.find((template) => template.id === editingTemplateId),
@@ -144,8 +167,8 @@ export function ScoreTemplateManager() {
   const weightTotal = formState ? getWeightTotal(formState.criteria) : 0;
   const weightIsValid = isValidWeightTotal(weightTotal);
 
-  function refreshTemplates() {
-    const storedTemplates = getScoreTemplates();
+  async function refreshTemplates() {
+    const storedTemplates = await getScoreTemplates();
     setTemplates(storedTemplates);
     return storedTemplates;
   }
@@ -291,7 +314,7 @@ export function ScoreTemplateManager() {
     return null;
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
 
@@ -309,12 +332,12 @@ export function ScoreTemplateManager() {
 
     try {
       if (editingTemplateId) {
-        updateScoreTemplate(editingTemplateId, nextState);
+        await updateScoreTemplate(editingTemplateId, nextState);
       } else {
-        createScoreTemplate(nextState);
+        await createScoreTemplate(nextState);
       }
 
-      const nextTemplates = refreshTemplates();
+      const nextTemplates = await refreshTemplates();
       resetForm(nextTemplates);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "评分模板保存失败。");
@@ -606,3 +629,5 @@ export function ScoreTemplateManager() {
     </main>
   );
 }
+
+
