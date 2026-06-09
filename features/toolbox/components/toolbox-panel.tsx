@@ -32,6 +32,12 @@ const iconSize = {
   height: 104,
 };
 
+const grid = {
+  padding: 12,
+  columnGap: 12,
+  rowGap: 12,
+};
+
 type ContextMenuState =
   | {
       type: "desktop";
@@ -54,6 +60,11 @@ type DragState = {
   startIconX: number;
   startIconY: number;
   hasMoved: boolean;
+};
+
+type GridCell = {
+  column: number;
+  row: number;
 };
 
 function pickRandomCoverColor() {
@@ -79,9 +90,13 @@ function getInitialPosition(index: number) {
   const row = Math.floor(index / 3);
 
   return {
-    x: 12 + column * 104,
-    y: 12 + row * 116,
+    x: grid.padding + column * (iconSize.width + grid.columnGap),
+    y: grid.padding + row * (iconSize.height + grid.rowGap),
   };
+}
+
+function getCellKey(cell: GridCell) {
+  return `${cell.column}:${cell.row}`;
 }
 
 export function ToolboxPanel() {
@@ -117,18 +132,7 @@ export function ToolboxPanel() {
         ]);
 
         if (isMounted) {
-          setIcons(
-            nextIcons.map((icon, index) => {
-              if (icon.x !== 0 || icon.y !== 0) {
-                return icon;
-              }
-
-              return {
-                ...icon,
-                ...getInitialPosition(index),
-              };
-            })
-          );
+          setIcons(normalizeIconsToGrid(nextIcons));
           setWallpaperUrl(settings.toolboxWallpaperUrl ?? "");
         }
       } catch (error) {
@@ -147,6 +151,7 @@ export function ToolboxPanel() {
     return () => {
       isMounted = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function resetDialog() {
@@ -201,6 +206,63 @@ export function ToolboxPanel() {
     });
   }
 
+  function getGridMetrics() {
+    const desktopRect = desktopRef.current?.getBoundingClientRect();
+
+    if (!desktopRect) {
+      return {
+        maxColumn: 2,
+        maxRow: Number.MAX_SAFE_INTEGER,
+      };
+    }
+
+    const maxColumn = Math.max(
+      0,
+      Math.floor(
+        (desktopRect.width - grid.padding * 2 - iconSize.width) /
+          (iconSize.width + grid.columnGap)
+      )
+    );
+    const maxRow = Math.max(
+      0,
+      Math.floor(
+        (desktopRect.height - grid.padding * 2 - iconSize.height) /
+          (iconSize.height + grid.rowGap)
+      )
+    );
+
+    return { maxColumn, maxRow };
+  }
+
+  function getGridCell(x: number, y: number): GridCell {
+    const { maxColumn, maxRow } = getGridMetrics();
+
+    return {
+      column: clamp(
+        Math.round((x - grid.padding) / (iconSize.width + grid.columnGap)),
+        0,
+        maxColumn
+      ),
+      row: clamp(
+        Math.round((y - grid.padding) / (iconSize.height + grid.rowGap)),
+        0,
+        maxRow
+      ),
+    };
+  }
+
+  function getGridPosition(cell: GridCell) {
+    const { maxColumn, maxRow } = getGridMetrics();
+
+    return {
+      x:
+        grid.padding +
+        clamp(cell.column, 0, maxColumn) * (iconSize.width + grid.columnGap),
+      y:
+        grid.padding + clamp(cell.row, 0, maxRow) * (iconSize.height + grid.rowGap),
+    };
+  }
+
   function getClampedPosition(x: number, y: number) {
     const desktopRect = desktopRef.current?.getBoundingClientRect();
 
@@ -209,9 +271,66 @@ export function ToolboxPanel() {
     }
 
     return {
-      x: Math.round(clamp(x, 0, Math.max(0, desktopRect.width - iconSize.width))),
-      y: Math.round(clamp(y, 0, Math.max(0, desktopRect.height - iconSize.height))),
+      x: Math.round(
+        clamp(x, grid.padding, Math.max(grid.padding, desktopRect.width - iconSize.width - grid.padding))
+      ),
+      y: Math.round(
+        clamp(y, grid.padding, Math.max(grid.padding, desktopRect.height - iconSize.height - grid.padding))
+      ),
     };
+  }
+
+  function findNearestAvailableCell(targetCell: GridCell, occupiedCells: Set<string>) {
+    const { maxColumn, maxRow } = getGridMetrics();
+    const finiteMaxRow =
+      maxRow === Number.MAX_SAFE_INTEGER
+        ? targetCell.row + occupiedCells.size + 6
+        : maxRow;
+    let nearestCell: GridCell | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (let row = 0; row <= finiteMaxRow; row += 1) {
+      for (let column = 0; column <= maxColumn; column += 1) {
+        const cell = { column, row };
+
+        if (occupiedCells.has(getCellKey(cell))) {
+          continue;
+        }
+
+        const distance =
+          Math.abs(cell.column - targetCell.column) +
+          Math.abs(cell.row - targetCell.row);
+
+        if (distance < nearestDistance) {
+          nearestCell = cell;
+          nearestDistance = distance;
+        }
+      }
+    }
+
+    return nearestCell ?? targetCell;
+  }
+
+  function normalizeIconsToGrid(nextIcons: ToolboxIcon[]) {
+    const occupiedCells = new Set<string>();
+
+    return nextIcons.map((icon, index) => {
+      const fallbackPosition = getInitialPosition(index);
+      const targetCell =
+        icon.x !== 0 || icon.y !== 0
+          ? getGridCell(icon.x, icon.y)
+          : getGridCell(fallbackPosition.x, fallbackPosition.y);
+      const availableCell = occupiedCells.has(getCellKey(targetCell))
+        ? findNearestAvailableCell(targetCell, occupiedCells)
+        : targetCell;
+
+      occupiedCells.add(getCellKey(availableCell));
+
+      return {
+        ...icon,
+        ...getGridPosition(availableCell),
+      };
+    });
   }
 
   function handlePointerDown(
@@ -276,7 +395,7 @@ export function ToolboxPanel() {
       return;
     }
 
-    const finalPosition = getClampedPosition(
+    const targetCell = getGridCell(
       dragState.startIconX + event.clientX - dragState.startPointerX,
       dragState.startIconY + event.clientY - dragState.startPointerY
     );
@@ -286,17 +405,36 @@ export function ToolboxPanel() {
       return;
     }
 
-    setIcons((currentIcons) =>
-      currentIcons.map((icon) =>
-        icon.id === dragState.iconId ? { ...icon, ...finalPosition } : icon
-      )
-    );
+    const originalCell = getGridCell(dragState.startIconX, dragState.startIconY);
+    const occupiedIcon = icons.find((icon) => {
+      if (icon.id === movedIcon.id) {
+        return false;
+      }
+
+      return getCellKey(getGridCell(icon.x, icon.y)) === getCellKey(targetCell);
+    });
+    const finalPosition = getGridPosition(targetCell);
+    const swappedPosition = getGridPosition(originalCell);
+    const nextIcons = icons.map((icon) => {
+      if (icon.id === movedIcon.id) {
+        return { ...icon, ...finalPosition };
+      }
+
+      if (occupiedIcon && icon.id === occupiedIcon.id) {
+        return { ...icon, ...swappedPosition };
+      }
+
+      return icon;
+    });
+
+    setIcons(nextIcons);
 
     try {
-      await updateToolboxIcon(movedIcon.id, {
-        x: finalPosition.x,
-        y: finalPosition.y,
-      });
+      await updateToolboxIcon(movedIcon.id, finalPosition);
+
+      if (occupiedIcon) {
+        await updateToolboxIcon(occupiedIcon.id, swappedPosition);
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "工具箱位置保存失败。");
     }
@@ -359,14 +497,29 @@ export function ToolboxPanel() {
       return;
     }
 
+    const occupiedCells = new Set(
+      icons
+        .filter((icon) => icon.id !== editingIcon?.id)
+        .map((icon) => getCellKey(getGridCell(icon.x, icon.y)))
+    );
+    const targetCell = editingIcon
+      ? getGridCell(editingIcon.x, editingIcon.y)
+      : findNearestAvailableCell(
+          getGridCell(
+            getInitialPosition(icons.length).x,
+            getInitialPosition(icons.length).y
+          ),
+          occupiedCells
+        );
+    const targetPosition = getGridPosition(targetCell);
     const input = {
       name: normalizedName,
       url: normalizedUrl,
       coverType,
       coverColor: coverType === "color" ? coverColor : "",
       coverImageUrl: coverType === "image" ? coverImageUrl : "",
-      x: editingIcon?.x ?? getInitialPosition(icons.length).x,
-      y: editingIcon?.y ?? getInitialPosition(icons.length).y,
+      x: targetPosition.x,
+      y: targetPosition.y,
     };
 
     setIsSaving(true);
@@ -375,13 +528,15 @@ export function ToolboxPanel() {
       if (editingIcon) {
         const updatedIcon = await updateToolboxIcon(editingIcon.id, input);
 
-        setIcons((currentIcons) =>
-          currentIcons.map((icon) => (icon.id === updatedIcon.id ? updatedIcon : icon))
-        );
+        setIcons((currentIcons) => normalizeIconsToGrid(
+          currentIcons.map((icon) =>
+            icon.id === updatedIcon.id ? updatedIcon : icon
+          )
+        ));
       } else {
         const createdIcon = await createToolboxIcon(input);
 
-        setIcons((currentIcons) => [createdIcon, ...currentIcons]);
+        setIcons((currentIcons) => normalizeIconsToGrid([createdIcon, ...currentIcons]));
       }
 
       resetDialog();
