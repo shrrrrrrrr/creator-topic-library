@@ -4,7 +4,9 @@ import {
   Bold,
   CheckSquare,
   Eye,
+  Heading1,
   Heading2,
+  Heading3,
   Highlighter,
   Image as ImageIcon,
   Italic,
@@ -15,7 +17,6 @@ import {
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -27,15 +28,86 @@ type MarkdownReviewEditorProps = {
 
 const placeholder = "在这里写复盘内容，支持 Markdown 格式。";
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+type MarkdownNode = {
+  type: string;
+  value?: string;
+  children?: MarkdownNode[];
+  data?: {
+    hName?: string;
+    hProperties?: Record<string, string>;
+  };
+};
+
+function normalizeTaskSyntax(value: string) {
+  return value.replace(
+    /^(\s*)\[( |x|X)\]\s+/gm,
+    "$1* [$2] "
+  );
 }
 
-function renderHighlightSyntax(value: string) {
-  return escapeHtml(value).replace(/==([^=\n][\s\S]*?[^=\n])==/g, "<mark>$1</mark>");
+function splitHighlightText(value: string): MarkdownNode[] {
+  const nodes: MarkdownNode[] = [];
+  const highlightPattern = /==([\s\S]*?)==/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = highlightPattern.exec(value)) !== null) {
+    if (!match[1].trim()) {
+      continue;
+    }
+
+    if (match.index > lastIndex) {
+      nodes.push({
+        type: "text",
+        value: value.slice(lastIndex, match.index),
+      });
+    }
+
+    nodes.push({
+      type: "mark",
+      data: {
+        hName: "mark",
+      },
+      children: [
+        {
+          type: "text",
+          value: match[1],
+        },
+      ],
+    });
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < value.length) {
+    nodes.push({
+      type: "text",
+      value: value.slice(lastIndex),
+    });
+  }
+
+  return nodes.length > 0 ? nodes : [{ type: "text", value }];
+}
+
+function transformHighlights(node: MarkdownNode) {
+  if (!node.children) {
+    return;
+  }
+
+  node.children = node.children.flatMap((child) => {
+    if (child.type === "text" && child.value?.includes("==")) {
+      return splitHighlightText(child.value);
+    }
+
+    transformHighlights(child);
+    return [child];
+  });
+}
+
+function remarkHighlight() {
+  return (tree: MarkdownNode) => {
+    transformHighlights(tree);
+  };
 }
 
 export function MarkdownReviewEditor({
@@ -44,7 +116,7 @@ export function MarkdownReviewEditor({
 }: MarkdownReviewEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [mode, setMode] = useState<"edit" | "preview">("edit");
-  const previewValue = useMemo(() => renderHighlightSyntax(value), [value]);
+  const previewValue = useMemo(() => normalizeTaskSyntax(value), [value]);
 
   function insertMarkdown(prefix: string, suffix = "", fallback = "") {
     const textarea = textareaRef.current;
@@ -80,9 +152,19 @@ export function MarkdownReviewEditor({
 
   const toolbarItems = [
     {
-      label: "标题",
+      label: "一级标题",
+      icon: Heading1,
+      action: () => insertBlock("# 一级标题"),
+    },
+    {
+      label: "二级标题",
       icon: Heading2,
-      action: () => insertBlock("## 标题"),
+      action: () => insertBlock("## 二级标题"),
+    },
+    {
+      label: "三级标题",
+      icon: Heading3,
+      action: () => insertBlock("### 三级标题"),
     },
     {
       label: "加粗",
@@ -118,12 +200,12 @@ export function MarkdownReviewEditor({
     {
       label: "待办",
       icon: ListTodo,
-      action: () => insertBlock("- [ ] 待完成事项"),
+      action: () => insertBlock("* [ ] 未完成"),
     },
     {
       label: "已完成",
       icon: CheckSquare,
-      action: () => insertBlock("- [x] 已完成事项"),
+      action: () => insertBlock("* [x] 已完成"),
     },
   ];
 
@@ -259,8 +341,7 @@ export function MarkdownReviewEditor({
                   <ul className="list-disc space-y-1 pl-5">{children}</ul>
                 ),
               }}
-              rehypePlugins={[rehypeRaw]}
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={[remarkGfm, remarkHighlight]}
             >
               {previewValue}
             </ReactMarkdown>

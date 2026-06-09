@@ -21,6 +21,13 @@ export class DeviceLimitError extends Error {
   }
 }
 
+export class DeviceRevokedError extends Error {
+  constructor() {
+    super("当前设备已被下线，请重新登录。");
+    this.name = "DeviceRevokedError";
+  }
+}
+
 function createId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -72,6 +79,54 @@ function getExpiryDate() {
   return date.toISOString();
 }
 
+function isMissingRevokedDevicesTable(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return /revoked_devices|does not exist|schema cache/i.test(message);
+}
+
+async function revokeDevice(userId: string, deviceId: string) {
+  if (!isSupabaseConfigured()) {
+    return;
+  }
+
+  const supabase = getSupabaseClient();
+  const { error } = await supabase.from("revoked_devices").upsert(
+    {
+      user_id: userId,
+      device_id: deviceId,
+      revoked_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,device_id" }
+  );
+
+  if (error && !isMissingRevokedDevicesTable(error)) {
+    throw error;
+  }
+}
+
+async function ensureCurrentDeviceIsNotRevoked(userId: string, deviceId: string) {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("revoked_devices")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("device_id", deviceId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingRevokedDevicesTable(error)) {
+      return;
+    }
+
+    throw error;
+  }
+
+  if (data) {
+    throw new DeviceRevokedError();
+  }
+}
+
 export async function cleanupExpiredDevices(userId: string) {
   if (!isSupabaseConfigured()) {
     return;
@@ -97,6 +152,7 @@ export async function registerCurrentDevice(userId: string) {
   const supabase = getSupabaseClient();
   const deviceId = getCurrentDeviceId();
 
+  await ensureCurrentDeviceIsNotRevoked(userId, deviceId);
   await cleanupExpiredDevices(userId);
 
   const { data: existingDevice, error: existingError } = await supabase
@@ -181,6 +237,20 @@ export async function removeActiveDevice(deviceRowId: string) {
   }
 
   const supabase = getSupabaseClient();
+  const { data: device, error: selectError } = await supabase
+    .from("active_devices")
+    .select("user_id, device_id")
+    .eq("id", deviceRowId)
+    .maybeSingle();
+
+  if (selectError) {
+    throw selectError;
+  }
+
+  if (device) {
+    await revokeDevice(String(device.user_id), String(device.device_id));
+  }
+
   const { error } = await supabase
     .from("active_devices")
     .delete()

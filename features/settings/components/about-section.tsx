@@ -12,6 +12,18 @@ type VersionNote = {
 
 const versionNotes: VersionNote[] = [
   {
+    version: "v1.11",
+    title: "v1.11 遗留问题修复与体验优化",
+    items: [
+      "修复复盘 Markdown 编辑器",
+      "优化登录和退出登录",
+      "“我的”页面设置改为自动保存",
+      "工具箱图标改为桌面网格布局",
+      "创作者信息和设备管理合并到弹窗",
+      "新增新手指引",
+    ],
+  },
+  {
     version: "v1.1",
     title: "v1.1 主要更新",
     items: [
