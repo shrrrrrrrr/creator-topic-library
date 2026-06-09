@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { LockKeyhole, LogIn, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/features/auth/auth-provider";
+import {
+  getReadableErrorMessage,
+  useAuth,
+} from "@/features/auth/auth-provider";
 import { cn } from "@/lib/utils";
 
 type AuthMode = "sign-in" | "sign-up";
@@ -32,7 +35,7 @@ export function AuthPage() {
         await signUp({ username, password, confirmPassword, rememberLogin });
       }
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : "操作失败，请稍后重试。");
+      setLocalError(getReadableErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }

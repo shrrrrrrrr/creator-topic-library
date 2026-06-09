@@ -62,8 +62,41 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+export function getReadableErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const errorRecord = error as Record<string, unknown>;
+    const message =
+      errorRecord.message ??
+      errorRecord.error_description ??
+      errorRecord.error ??
+      errorRecord.details ??
+      errorRecord.hint ??
+      errorRecord.code;
+
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+
+    try {
+      return JSON.stringify(errorRecord);
+    } catch {
+      return "操作失败，请稍后重试。";
+    }
+  }
+
+  return "操作失败，请稍后重试。";
+}
+
 function getAuthErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getReadableErrorMessage(error);
 
   if (error instanceof DeviceLimitError) {
     return error.message;
