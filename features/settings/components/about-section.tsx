@@ -12,6 +12,17 @@ type VersionNote = {
 
 const versionNotes: VersionNote[] = [
   {
+    version: "v1.13",
+    title: "v1.13 图片上传优化",
+    items: [
+      "新增图片上传前自动压缩",
+      "头像、工具箱图标封面、工具箱桌面背景图都会在上传前压缩",
+      "降低存储和流量占用",
+      "提升多人使用时的加载稳定性",
+      "保留已有图片和已有用户数据，不做破坏性迁移",
+    ],
+  },
+  {
     version: "v1.12",
     title: "v1.12 体验优化",
     items: [

@@ -463,7 +463,9 @@ export function ToolboxPanel() {
       setCoverType("image");
       setCoverImageUrl(uploadedUrl);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "封面上传失败。");
+      setErrorMessage(
+        error instanceof Error ? error.message : "图片上传失败，请稍后重试。"
+      );
     } finally {
       setIsUploadingCover(false);
       event.target.value = "";
@@ -473,7 +475,7 @@ export function ToolboxPanel() {
   async function handleWallpaperUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
 
-    if (!file) {
+    if (!file || isUploadingWallpaper) {
       return;
     }
 
@@ -486,7 +488,9 @@ export function ToolboxPanel() {
       await updateUserSettings({ toolboxWallpaperUrl: uploadedUrl });
       setWallpaperUrl(uploadedUrl);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "壁纸上传失败。");
+      setErrorMessage(
+        error instanceof Error ? error.message : "图片上传失败，请稍后重试。"
+      );
     } finally {
       setIsUploadingWallpaper(false);
       event.target.value = "";
@@ -580,7 +584,7 @@ export function ToolboxPanel() {
       onClick={() => setContextMenu(null)}
     >
       <input
-        accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+        accept="image/jpeg,image/png,image/webp,image/gif"
         className="hidden"
         onChange={handleWallpaperUpload}
         ref={wallpaperInputRef}
@@ -614,7 +618,12 @@ export function ToolboxPanel() {
             : undefined
         }
       >
-        {isLoading || isUploadingWallpaper ? <LoadingState /> : null}
+        {isLoading ? <LoadingState /> : null}
+        {isUploadingWallpaper ? (
+          <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+            图片正在压缩，请稍等……
+          </div>
+        ) : null}
         {errorMessage ? <ErrorState message={errorMessage} /> : null}
 
         {!isLoading && icons.length === 0 ? (
@@ -680,6 +689,7 @@ export function ToolboxPanel() {
               </button>
               <button
                 className="block w-full px-3 py-2 text-left hover:bg-muted"
+                disabled={isUploadingWallpaper}
                 onClick={() => {
                   setContextMenu(null);
                   wallpaperInputRef.current?.click();
@@ -721,7 +731,7 @@ export function ToolboxPanel() {
             onSubmit={handleSubmit}
           >
             <input
-              accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+              accept="image/jpeg,image/png,image/webp,image/gif"
               className="hidden"
               onChange={handleCoverUpload}
               ref={coverInputRef}
@@ -813,7 +823,7 @@ export function ToolboxPanel() {
                     variant="secondary"
                   >
                     <Upload aria-hidden="true" className="size-4" />
-                    {isUploadingCover ? "上传中..." : "上传图片"}
+                    {isUploadingCover ? "图片正在压缩，请稍等……" : "上传图片"}
                   </Button>
                 </div>
               </div>
