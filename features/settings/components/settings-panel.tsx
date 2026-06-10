@@ -16,6 +16,7 @@ import {
   Tags,
   Trash2,
   Trophy,
+  Upload,
   Wrench,
   UserRound,
   X,
@@ -35,6 +36,7 @@ import {
 } from "@/lib/auth/devices";
 import { getUserSettings, updateUserSettings } from "@/lib/data/repository";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
+import { uploadToolboxImage } from "@/lib/supabase/storage";
 import { cn } from "@/lib/utils";
 import type { ThemeColor, UserSettings } from "@/types/settings";
 
@@ -143,9 +145,11 @@ export function SettingsPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isLoadingDevices, setIsLoadingDevices] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isCreatorOpen, setIsCreatorOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const skipAutoSaveRef = useRef(true);
 
   async function loadDevices() {
@@ -306,6 +310,46 @@ export function SettingsPanel() {
     }
   }
 
+  async function handleAvatarUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsUploadingAvatar(true);
+
+    try {
+      const uploadedUrl = await uploadToolboxImage(file, "avatars");
+      const nextSettings = await updateUserSettings({ avatarUrl: uploadedUrl });
+
+      if (profile && isSupabaseConfigured()) {
+        const supabaseClient = getSupabaseClient();
+        const { error } = await supabaseClient
+          .from("profiles")
+          .update({ avatar_url: uploadedUrl })
+          .eq("user_id", profile.user_id);
+
+        if (error) {
+          throw error;
+        }
+
+        await refreshProfile();
+      }
+
+      setSettings((previousSettings) => ({
+        ...previousSettings,
+        avatarUrl: nextSettings.avatarUrl,
+      }));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "头像上传失败。");
+    } finally {
+      setIsUploadingAvatar(false);
+      event.target.value = "";
+    }
+  }
+
   async function handleRemoveDevice(device: ActiveDevice) {
     const isCurrentDevice = device.device_id === getCurrentDeviceId();
     const shouldRemove = window.confirm(`确定将设备「${device.device_name}」下线吗？`);
@@ -352,6 +396,14 @@ export function SettingsPanel() {
 
       {!isLoading ? (
         <div className="space-y-5">
+          <input
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="hidden"
+            onChange={handleAvatarUpload}
+            ref={avatarInputRef}
+            type="file"
+          />
+
           <button
             className="w-full rounded-lg border border-primary/20 bg-card p-4 text-left shadow-sm transition hover:border-primary"
             onClick={() => setIsCreatorOpen(true)}
@@ -363,7 +415,7 @@ export function SettingsPanel() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     alt="头像预览"
-                    className="size-full object-cover"
+                    className="size-full object-cover object-center"
                     src={settings.avatarUrl}
                   />
                 ) : (
@@ -504,18 +556,26 @@ export function SettingsPanel() {
                   value={settings.nickname}
                 />
               </label>
-              <label className="space-y-2 text-sm font-medium">
+              <div className="space-y-2 text-sm font-medium">
                 <span className="flex items-center gap-2">
                   <ImageIcon aria-hidden="true" className="size-4" />
-                  头像链接
+                  头像
                 </span>
-                <input
-                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  onChange={(event) => updateField("avatarUrl", event.target.value)}
-                  placeholder="粘贴图片链接"
-                  value={settings.avatarUrl ?? ""}
-                />
-              </label>
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-background p-3">
+                  <Button
+                    disabled={isUploadingAvatar}
+                    onClick={() => avatarInputRef.current?.click()}
+                    type="button"
+                    variant="secondary"
+                  >
+                    <Upload aria-hidden="true" className="size-4" />
+                    {isUploadingAvatar ? "上传中..." : "上传头像"}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    支持 JPG、PNG、WebP、GIF，旧头像链接仍会正常显示。
+                  </span>
+                </div>
+              </div>
 
               <div className="space-y-3 border-t border-border pt-4">
                 <div className="flex items-center justify-between gap-3">

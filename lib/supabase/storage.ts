@@ -23,7 +23,10 @@ export function assertAllowedImageFile(file: File) {
   }
 }
 
-export async function uploadToolboxImage(file: File, folder: "covers" | "wallpapers") {
+export async function uploadToolboxImage(
+  file: File,
+  folder: "avatars" | "covers" | "wallpapers"
+) {
   assertAllowedImageFile(file);
 
   if (!isSupabaseConfigured()) {

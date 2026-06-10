@@ -9,8 +9,10 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   createReview,
+  deleteReview,
   getReviews,
   getTopics,
   updateReview,
@@ -232,6 +234,7 @@ export function ReviewEditor({ mode }: ReviewEditorProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -379,6 +382,23 @@ export function ReviewEditor({ mode }: ReviewEditorProps) {
     }
   }
 
+  async function confirmDelete() {
+    if (!review) {
+      return;
+    }
+
+    setErrorMessage(null);
+
+    try {
+      await deleteReview(review.id);
+      router.push("/review");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "复盘删除失败。");
+    } finally {
+      setIsDeleteDialogOpen(false);
+    }
+  }
+
   function renderLinks(
     title: string,
     field: "imageLinks" | "normalLinks" | "dataDashboardLinks",
@@ -472,7 +492,24 @@ export function ReviewEditor({ mode }: ReviewEditorProps) {
             </Link>
           </Button>
         ) : null}
+        {review ? (
+          <Button
+            className="border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
+            onClick={() => setIsDeleteDialogOpen(true)}
+            type="button"
+            variant="ghost"
+          >
+            <Trash2 aria-hidden="true" className="size-4" />
+            删除
+          </Button>
+        ) : null}
       </div>
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onCancel={() => setIsDeleteDialogOpen(false)}
+        onConfirm={confirmDelete}
+      />
 
       <PageHeader eyebrow="Review Editor" title={pageTitle} description={pageDescription} />
 

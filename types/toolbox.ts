@@ -7,6 +7,9 @@ export type ToolboxIcon = {
   coverImageUrl?: string;
   x: number;
   y: number;
+  gridIndex?: number;
+  gridRow?: number;
+  gridCol?: number;
   createdAt: string;
   updatedAt: string;
 };

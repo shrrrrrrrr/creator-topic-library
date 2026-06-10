@@ -152,7 +152,13 @@ export function TopicScoringForm() {
         if (currentTopic) {
           const latestRecord = getTopicScoreRecord(currentTopic, storedScoreRecords);
           const fallbackTemplateId = storedTemplates[0]?.id ?? "";
-          const initialTemplateId = latestRecord?.templateId ?? fallbackTemplateId;
+          const latestTemplateExists = storedTemplates.some(
+            (template) => template.id === latestRecord?.templateId
+          );
+          const initialTemplateId =
+            latestRecord?.templateId && latestTemplateExists
+              ? latestRecord.templateId
+              : fallbackTemplateId;
 
           setSelectedTemplateId(initialTemplateId);
 

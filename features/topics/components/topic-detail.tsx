@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDataSyncVersion } from "@/features/sync/data-sync-provider";
 import {
   deleteTopic,
@@ -69,6 +70,7 @@ export function TopicDetail() {
   const [scoreRecords, setScoreRecords] = useState<ScoreRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const syncVersion = useDataSyncVersion();
 
   useEffect(() => {
@@ -132,14 +134,8 @@ export function TopicDetail() {
     }
   }
 
-  async function handleDelete() {
+  async function confirmDelete() {
     if (!topic) {
-      return;
-    }
-
-    const shouldDelete = window.confirm("确定删除这个选题吗？此操作无法撤销。");
-
-    if (!shouldDelete) {
       return;
     }
 
@@ -148,6 +144,8 @@ export function TopicDetail() {
       router.push("/");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "选题删除失败。");
+    } finally {
+      setIsDeleteDialogOpen(false);
     }
   }
 
@@ -169,18 +167,24 @@ export function TopicDetail() {
                 编辑
               </Link>
             </Button>
-            <Button
-              className="border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
-              onClick={handleDelete}
-              type="button"
-              variant="ghost"
-            >
+              <Button
+                className="border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
+                onClick={() => setIsDeleteDialogOpen(true)}
+                type="button"
+                variant="ghost"
+              >
               <Trash2 aria-hidden="true" className="size-4" />
               删除
             </Button>
           </div>
         ) : null}
       </div>
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onCancel={() => setIsDeleteDialogOpen(false)}
+        onConfirm={confirmDelete}
+      />
 
       {isLoading ? <LoadingState /> : null}
       {errorMessage ? <ErrorState message={errorMessage} /> : null}

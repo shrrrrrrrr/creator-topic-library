@@ -203,6 +203,29 @@ export function updateTopic(id: string, input: UpdateInput<Topic>) {
 
 export function deleteTopic(id: string) {
   deleteEntity<Topic>(STORAGE_KEYS.topics, seedData.topics, id);
+
+  const scoreRecords = readCollection<ScoreRecord>(
+    STORAGE_KEYS.scoreRecords,
+    seedData.scoreRecords
+  );
+  writeCollection(
+    STORAGE_KEYS.scoreRecords,
+    scoreRecords.filter((record) => record.topicId !== id)
+  );
+
+  const reviews = readCollection<Review>(STORAGE_KEYS.reviews, seedData.reviews);
+  writeCollection(
+    STORAGE_KEYS.reviews,
+    reviews.map((review) =>
+      review.topicId === id
+        ? {
+            ...review,
+            topicId: null,
+            updatedAt: new Date().toISOString(),
+          }
+        : review
+    )
+  );
 }
 
 export function getTags() {
@@ -246,6 +269,28 @@ export function updateScoreTemplate(id: string, input: UpdateInput<ScoreTemplate
   );
 }
 
+export function deleteScoreTemplate(id: string) {
+  deleteEntity<ScoreTemplate>(STORAGE_KEYS.scoreTemplates, seedData.scoreTemplates, id);
+
+  const scoreRecords = readCollection<ScoreRecord>(
+    STORAGE_KEYS.scoreRecords,
+    seedData.scoreRecords
+  );
+
+  writeCollection(
+    STORAGE_KEYS.scoreRecords,
+    scoreRecords.map((record) =>
+      record.templateId === id
+        ? {
+            ...record,
+            templateId: "",
+            updatedAt: new Date().toISOString(),
+          }
+        : record
+    )
+  );
+}
+
 export function getScoreRecords() {
   return readCollection<ScoreRecord>(STORAGE_KEYS.scoreRecords, seedData.scoreRecords);
 }
@@ -278,6 +323,10 @@ export function createReview(input: CreateInput<Review>) {
 
 export function updateReview(id: string, input: UpdateInput<Review>) {
   return updateEntity<Review>(STORAGE_KEYS.reviews, seedData.reviews, id, input);
+}
+
+export function deleteReview(id: string) {
+  deleteEntity<Review>(STORAGE_KEYS.reviews, seedData.reviews, id);
 }
 
 export function getToolboxIcons() {

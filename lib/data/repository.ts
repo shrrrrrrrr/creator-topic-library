@@ -288,6 +288,35 @@ function mapToolboxIconToDb(
   };
 }
 
+function mapUserSettingsPatchToDb(input: Partial<UserSettings>) {
+  return {
+    ...(input.themeColor !== undefined
+      ? {
+          theme_mode: input.themeColor === "dark" ? "dark" : "light",
+          accent_color: input.themeColor,
+        }
+      : {}),
+    ...(input.toolboxWallpaperUrl !== undefined
+      ? { toolbox_wallpaper_url: input.toolboxWallpaperUrl || null }
+      : {}),
+  };
+}
+
+function mapInitialUserSettingsToDb(
+  settings: UserSettings,
+  input: Partial<UserSettings>,
+  userId: string
+) {
+  return {
+    user_id: userId,
+    theme_mode: settings.themeColor === "dark" ? "dark" : "light",
+    accent_color: settings.themeColor,
+    ...(input.toolboxWallpaperUrl !== undefined
+      ? { toolbox_wallpaper_url: input.toolboxWallpaperUrl || null }
+      : {}),
+  };
+}
+
 export async function getTopics() {
   if (!(await shouldUseSupabase())) {
     return localStore.getTopics();
@@ -331,11 +360,13 @@ export async function updateTopic(id: string, input: UpdateInput<Topic>) {
     return localStore.updateTopic(id, input);
   }
 
+  const userId = await getCurrentUserId();
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("topics")
     .update(mapTopicToDb(input))
     .eq("id", id)
+    .eq("user_id", userId)
     .select("*")
     .single();
 
@@ -351,8 +382,9 @@ export async function deleteTopic(id: string) {
     return localStore.deleteTopic(id);
   }
 
+  const userId = await getCurrentUserId();
   const supabase = getSupabaseClient();
-  const { error } = await supabase.from("topics").delete().eq("id", id);
+  const { error } = await supabase.from("topics").delete().eq("id", id).eq("user_id", userId);
 
   if (error) {
     throw error;
@@ -402,11 +434,13 @@ export async function updateTag(id: string, input: UpdateInput<Tag>) {
     return localStore.updateTag(id, input);
   }
 
+  const userId = await getCurrentUserId();
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("tags")
     .update(mapTagToDb(input))
     .eq("id", id)
+    .eq("user_id", userId)
     .select("*")
     .single();
 
@@ -422,8 +456,9 @@ export async function deleteTag(id: string) {
     return localStore.deleteTag(id);
   }
 
+  const userId = await getCurrentUserId();
   const supabase = getSupabaseClient();
-  const { error } = await supabase.from("tags").delete().eq("id", id);
+  const { error } = await supabase.from("tags").delete().eq("id", id).eq("user_id", userId);
 
   if (error) {
     throw error;
@@ -476,11 +511,13 @@ export async function updateScoreTemplate(
     return localStore.updateScoreTemplate(id, input);
   }
 
+  const userId = await getCurrentUserId();
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("score_templates")
     .update(mapScoreTemplateToDb(input))
     .eq("id", id)
+    .eq("user_id", userId)
     .select("*")
     .single();
 
@@ -489,6 +526,24 @@ export async function updateScoreTemplate(
   }
 
   return mapScoreTemplateFromDb(data);
+}
+
+export async function deleteScoreTemplate(id: string) {
+  if (!(await shouldUseSupabase())) {
+    return localStore.deleteScoreTemplate(id);
+  }
+
+  const userId = await getCurrentUserId();
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from("score_templates")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function getScoreRecords() {
@@ -534,11 +589,13 @@ export async function updateScoreRecord(id: string, input: UpdateInput<ScoreReco
     return localStore.updateScoreRecord(id, input);
   }
 
+  const userId = await getCurrentUserId();
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("score_records")
     .update(mapScoreRecordToDb(input))
     .eq("id", id)
+    .eq("user_id", userId)
     .select("*")
     .single();
 
@@ -592,11 +649,13 @@ export async function updateReview(id: string, input: UpdateInput<Review>) {
     return localStore.updateReview(id, input);
   }
 
+  const userId = await getCurrentUserId();
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("reviews")
     .update(mapReviewToDb(input))
     .eq("id", id)
+    .eq("user_id", userId)
     .select("*")
     .single();
 
@@ -605,6 +664,24 @@ export async function updateReview(id: string, input: UpdateInput<Review>) {
   }
 
   return mapReviewFromDb(data);
+}
+
+export async function deleteReview(id: string) {
+  if (!(await shouldUseSupabase())) {
+    return localStore.deleteReview(id);
+  }
+
+  const userId = await getCurrentUserId();
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from("reviews")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function getToolboxIcons() {
@@ -653,11 +730,13 @@ export async function updateToolboxIcon(
     return localStore.updateToolboxIcon(id, input);
   }
 
+  const userId = await getCurrentUserId();
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("toolbox_icons")
     .update(mapToolboxIconToDb(input))
     .eq("id", id)
+    .eq("user_id", userId)
     .select("*")
     .single();
 
@@ -673,8 +752,13 @@ export async function deleteToolboxIcon(id: string) {
     return localStore.deleteToolboxIcon(id);
   }
 
+  const userId = await getCurrentUserId();
   const supabase = getSupabaseClient();
-  const { error } = await supabase.from("toolbox_icons").delete().eq("id", id);
+  const { error } = await supabase
+    .from("toolbox_icons")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId);
 
   if (error) {
     throw error;
@@ -716,33 +800,49 @@ export async function getUserSettings() {
     themeColor: normalizeThemeColor(data.accent_color, localSettings.themeColor),
     toolboxWallpaperUrl: data.toolbox_wallpaper_url
       ? String(data.toolbox_wallpaper_url)
-      : localSettings.toolboxWallpaperUrl,
+      : "",
   };
 }
 
 export async function updateUserSettings(input: Partial<UserSettings>) {
-  const currentSettings = localStore.updateUserSettings(input);
-
   if (!(await shouldUseSupabase())) {
+    return localStore.updateUserSettings(input);
+  }
+
+  const currentSettings = {
+    ...localStore.getUserSettings(),
+    ...input,
+  };
+  const userId = await getCurrentUserId();
+  const supabase = getSupabaseClient();
+  const payload = mapUserSettingsPatchToDb(input);
+
+  if (Object.keys(payload).length === 0) {
+    localStore.updateUserSettings(input);
     return currentSettings;
   }
 
-  const userId = await getCurrentUserId();
-  const supabase = getSupabaseClient();
-  const { error } = await supabase.from("user_settings").upsert(
-    {
-      user_id: userId,
-      theme_mode: currentSettings.themeColor === "dark" ? "dark" : "light",
-      accent_color: currentSettings.themeColor,
-      toolbox_wallpaper_url: currentSettings.toolboxWallpaperUrl ?? null,
-      remember_login_preference: true,
-    },
-    { onConflict: "user_id" }
-  );
+  const { data: existingSettings, error: readError } = await supabase
+    .from("user_settings")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (readError) {
+    throw readError;
+  }
+
+  const { error } = existingSettings
+    ? await supabase.from("user_settings").update(payload).eq("user_id", userId)
+    : await supabase
+        .from("user_settings")
+        .insert(mapInitialUserSettingsToDb(currentSettings, input, userId));
 
   if (error) {
     throw error;
   }
+
+  localStore.updateUserSettings(input);
 
   return currentSettings;
 }
