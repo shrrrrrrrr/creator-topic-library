@@ -11,6 +11,7 @@ import {
 import type { User } from "@supabase/supabase-js";
 import {
   DeviceLimitError,
+  DeviceRevokedError,
   registerCurrentDevice,
   removeCurrentDevice,
 } from "@/lib/auth/devices";
@@ -22,6 +23,8 @@ import {
 } from "@/lib/auth/username";
 import { setActiveStorageUserId } from "@/lib/storage/app-storage";
 import {
+  clearRememberLoginPreference,
+  getRememberLoginPreference,
   getSupabaseClient,
   isSupabaseConfigured,
   setRememberLoginPreference,
@@ -59,19 +62,64 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+export function getReadableErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const errorRecord = error as Record<string, unknown>;
+    const message =
+      errorRecord.message ??
+      errorRecord.error_description ??
+      errorRecord.error ??
+      errorRecord.details ??
+      errorRecord.hint ??
+      errorRecord.code;
+
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+
+    try {
+      return JSON.stringify(errorRecord);
+    } catch {
+      return "操作失败，请稍后重试。";
+    }
+  }
+
+  return "操作失败，请稍后重试。";
+}
+
 function getAuthErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getReadableErrorMessage(error);
 
   if (error instanceof DeviceLimitError) {
     return error.message;
   }
 
+  if (error instanceof DeviceRevokedError) {
+    return error.message;
+  }
+
   if (/invalid login credentials/i.test(message)) {
-    return "用户名或密码不正确。";
+    return "昵称或密码不正确。";
   }
 
   if (/already registered|already exists|duplicate key/i.test(message)) {
-    return "用户名已被使用，请换一个用户名。";
+    return "昵称已存在，换一个试试吧~";
+  }
+
+  if (/multiple profiles matched/i.test(message)) {
+    return "这个昵称暂时无法登录，请联系管理员处理。";
+  }
+
+  if (/nickname already exists/i.test(message)) {
+    return "昵称已存在，换一个试试吧~";
   }
 
   if (/supabase environment variables/i.test(message)) {
@@ -119,6 +167,55 @@ async function createProfileForUser(user: User) {
   return data as UserProfile;
 }
 
+function hasSessionStorageAuthToken() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return Object.keys(window.sessionStorage).some((key) =>
+    key.includes("auth-token")
+  );
+}
+
+async function resolveLoginUsername(loginName: string) {
+  const normalizedLoginName = normalizeUsername(loginName);
+  const supabaseClient = getSupabaseClient();
+  const { data, error } = await supabaseClient.rpc("resolve_login_identifier", {
+    login_input: normalizedLoginName,
+  });
+
+  if (error) {
+    if (/function .* does not exist/i.test(error.message)) {
+      return normalizedLoginName;
+    }
+
+    throw error;
+  }
+
+  return normalizeUsername(String(data ?? normalizedLoginName));
+}
+
+async function ensureNicknameAvailable(nickname: string, currentUserId?: string) {
+  const normalizedNickname = normalizeUsername(nickname);
+  const supabaseClient = getSupabaseClient();
+  const { data, error } = await supabaseClient.rpc("is_nickname_available", {
+    nickname_input: normalizedNickname,
+    current_user_id: currentUserId ?? null,
+  });
+
+  if (error) {
+    if (/function .* does not exist/i.test(error.message)) {
+      return;
+    }
+
+    throw error;
+  }
+
+  if (data === false) {
+    throw new Error("nickname already exists");
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -164,6 +261,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const supabaseClient = getSupabaseClient();
+
+        if (!getRememberLoginPreference() && !hasSessionStorageAuthToken()) {
+          await supabaseClient.auth.signOut();
+          clearAuthState();
+          return;
+        }
+
         const { data, error } = await supabaseClient.auth.getSession();
 
         if (error) {
@@ -183,7 +287,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(sessionUser);
       } catch (error) {
         if (isMounted) {
-          if (error instanceof DeviceLimitError) {
+          if (error instanceof DeviceLimitError || error instanceof DeviceRevokedError) {
             await getSupabaseClient().auth.signOut();
           }
 
@@ -219,7 +323,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loadProfile(nextUser)
         .then(() => setUser(nextUser))
         .catch(async (error) => {
-          if (error instanceof DeviceLimitError) {
+          if (error instanceof DeviceLimitError || error instanceof DeviceRevokedError) {
             await supabaseClient.auth.signOut();
           }
 
@@ -256,8 +360,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setRememberLoginPreference(rememberLogin);
 
       const supabaseClient = getSupabaseClient();
+      const resolvedUsername = await resolveLoginUsername(username);
       const { data, error } = await supabaseClient.auth.signInWithPassword({
-        email: usernameToVirtualEmail(username),
+        email: usernameToVirtualEmail(resolvedUsername),
         password,
       });
 
@@ -309,6 +414,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setRememberLoginPreference(rememberLogin);
 
       const supabaseClient = getSupabaseClient();
+      await ensureNicknameAvailable(normalizedUsername);
       const { data, error } = await supabaseClient.auth.signUp({
         email: usernameToVirtualEmail(normalizedUsername),
         password,
@@ -372,15 +478,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    clearRememberLoginPreference();
+
     if (isSupabaseConfigured()) {
       const currentUserId = user?.id;
 
       if (currentUserId) {
-        await removeCurrentDevice(currentUserId);
+        try {
+          await removeCurrentDevice(currentUserId);
+        } catch {
+          // Signing out should still clear the local session even if device cleanup fails.
+        }
       }
 
       const supabaseClient = getSupabaseClient();
-      const { error } = await supabaseClient.auth.signOut();
+      const { error } = await supabaseClient.auth.signOut({ scope: "local" });
 
       if (error) {
         throw error;

@@ -8,11 +8,11 @@ export function validateUsername(username: string) {
   const normalizedUsername = normalizeUsername(username);
 
   if (!normalizedUsername) {
-    return "请输入用户名。";
+    return "请输入昵称。";
   }
 
   if (normalizedUsername.length < 2 || normalizedUsername.length > 30) {
-    return "用户名长度建议为 2 到 30 位。";
+    return "昵称长度建议为 2 到 30 位。";
   }
 
   return null;

@@ -1,4 +1,6 @@
 export {
+  clearRememberLoginPreference,
+  getRememberLoginPreference,
   getSupabaseClient,
   isSupabaseConfigured,
   setRememberLoginPreference,

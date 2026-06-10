@@ -8,10 +8,14 @@ let cachedClient: SupabaseClient | null = null;
 
 function shouldRememberLogin() {
   if (typeof window === "undefined") {
-    return true;
+    return false;
   }
 
-  return window.localStorage.getItem(REMEMBER_LOGIN_KEY) !== "false";
+  return window.localStorage.getItem(REMEMBER_LOGIN_KEY) === "true";
+}
+
+export function getRememberLoginPreference() {
+  return shouldRememberLogin();
 }
 
 function getAuthStorage() {
@@ -44,6 +48,14 @@ export function setRememberLoginPreference(rememberLogin: boolean) {
   }
 
   window.localStorage.setItem(REMEMBER_LOGIN_KEY, String(rememberLogin));
+}
+
+export function clearRememberLoginPreference() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(REMEMBER_LOGIN_KEY);
 }
 
 export function isSupabaseConfigured() {

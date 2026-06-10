@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { LockKeyhole, LogIn, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/features/auth/auth-provider";
+import {
+  getReadableErrorMessage,
+  useAuth,
+} from "@/features/auth/auth-provider";
 import { cn } from "@/lib/utils";
 
 type AuthMode = "sign-in" | "sign-up";
@@ -32,7 +35,7 @@ export function AuthPage() {
         await signUp({ username, password, confirmPassword, rememberLogin });
       }
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : "操作失败，请稍后重试。");
+      setLocalError(getReadableErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -86,12 +89,12 @@ export function AuthPage() {
 
         <form className="space-y-4" onSubmit={handleSubmit}>
           <label className="space-y-2 text-sm font-medium">
-            <span>用户名</span>
+            <span>昵称</span>
             <input
               autoComplete="username"
               className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="请输入用户名"
+              placeholder="请输入昵称"
               value={username}
             />
           </label>
@@ -133,7 +136,7 @@ export function AuthPage() {
               onChange={(event) => setRememberLogin(event.target.checked)}
               type="checkbox"
             />
-            记住登录
+            记住密码 / 记住登录（不保存明文密码）
           </label>
 
           {localError || errorMessage ? (
