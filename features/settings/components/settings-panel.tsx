@@ -343,7 +343,9 @@ export function SettingsPanel() {
         avatarUrl: nextSettings.avatarUrl,
       }));
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "头像上传失败。");
+      setErrorMessage(
+        error instanceof Error ? error.message : "图片上传失败，请稍后重试。"
+      );
     } finally {
       setIsUploadingAvatar(false);
       event.target.value = "";
@@ -569,7 +571,7 @@ export function SettingsPanel() {
                     variant="secondary"
                   >
                     <Upload aria-hidden="true" className="size-4" />
-                    {isUploadingAvatar ? "上传中..." : "上传头像"}
+                    {isUploadingAvatar ? "图片正在压缩，请稍等……" : "上传头像"}
                   </Button>
                   <span className="text-xs text-muted-foreground">
                     支持 JPG、PNG、WebP、GIF，旧头像链接仍会正常显示。
