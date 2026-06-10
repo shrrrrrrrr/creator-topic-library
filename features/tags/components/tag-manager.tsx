@@ -8,6 +8,7 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDataSyncVersion } from "@/features/sync/data-sync-provider";
 import {
   createTag,
@@ -54,6 +55,7 @@ export function TagManager() {
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [tagToDelete, setTagToDelete] = useState<Tag | null>(null);
   const syncVersion = useDataSyncVersion();
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
@@ -166,16 +168,6 @@ export function TagManager() {
     setErrorMessage(null);
     const usageCount = usageMap.get(tag.id) ?? 0;
 
-    if (usageCount > 0) {
-      const shouldDelete = window.confirm(
-        `标签 "${tag.name}" 正在被 ${usageCount} 个选题使用。删除后会从这些选题中移除，确定继续吗？`
-      );
-
-      if (!shouldDelete) {
-        return;
-      }
-    }
-
     try {
       if (usageCount > 0) {
         await Promise.all(
@@ -197,6 +189,8 @@ export function TagManager() {
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "标签删除失败。");
+    } finally {
+      setTagToDelete(null);
     }
   }
 
@@ -271,7 +265,7 @@ export function TagManager() {
                         </Button>
                         <Button
                           className="text-destructive hover:bg-destructive/10"
-                          onClick={() => handleDelete(tag)}
+                          onClick={() => setTagToDelete(tag)}
                           size="icon"
                           type="button"
                           variant="ghost"
@@ -387,6 +381,16 @@ export function TagManager() {
           </form>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        isOpen={Boolean(tagToDelete)}
+        onCancel={() => setTagToDelete(null)}
+        onConfirm={() => {
+          if (tagToDelete) {
+            void handleDelete(tagToDelete);
+          }
+        }}
+      />
     </main>
   );
 }

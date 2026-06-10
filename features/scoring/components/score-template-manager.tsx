@@ -8,9 +8,11 @@ import { ErrorState } from "@/components/app-shell/error-state";
 import { LoadingState } from "@/components/app-shell/loading-state";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDataSyncVersion } from "@/features/sync/data-sync-provider";
 import {
   createScoreTemplate,
+  deleteScoreTemplate,
   getScoreTemplates,
   updateScoreTemplate,
 } from "@/lib/data/repository";
@@ -123,6 +125,8 @@ export function ScoreTemplateManager() {
   const [formState, setFormState] = useState<ScoreTemplateFormState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [templateToDelete, setTemplateToDelete] = useState<ScoreTemplate | null>(null);
+  const [criterionToDelete, setCriterionToDelete] = useState<string | null>(null);
   const syncVersion = useDataSyncVersion();
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
@@ -236,6 +240,23 @@ export function ScoreTemplateManager() {
       "criteria",
       formState.criteria.filter((criterion) => criterion.id !== id)
     );
+  }
+
+  async function handleDeleteTemplate(template: ScoreTemplate) {
+    setErrorMessage(null);
+
+    try {
+      await deleteScoreTemplate(template.id);
+      const nextTemplates = await refreshTemplates();
+
+      if (editingTemplateId === template.id) {
+        resetForm(nextTemplates);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "评分模板删除失败。");
+    } finally {
+      setTemplateToDelete(null);
+    }
   }
 
   function addBonusItem() {
@@ -416,15 +437,27 @@ export function ScoreTemplateManager() {
                           ))}
                         </div>
                       </div>
-                      <Button
-                        onClick={() => startEdit(template)}
-                        size="icon"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Pencil aria-hidden="true" className="size-4" />
-                        <span className="sr-only">编辑评分模板</span>
-                      </Button>
+                      <div className="flex shrink-0 gap-2">
+                        <Button
+                          onClick={() => startEdit(template)}
+                          size="icon"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Pencil aria-hidden="true" className="size-4" />
+                          <span className="sr-only">编辑评分模板</span>
+                        </Button>
+                        <Button
+                          className="text-destructive hover:bg-destructive/10"
+                          onClick={() => setTemplateToDelete(template)}
+                          size="icon"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Trash2 aria-hidden="true" className="size-4" />
+                          <span className="sr-only">删除评分模板</span>
+                        </Button>
+                      </div>
                     </div>
                   </article>
                 );
@@ -446,10 +479,27 @@ export function ScoreTemplateManager() {
                 {editingTemplate ? "编辑模板" : "新建模板"}
               </h2>
               {editingTemplate ? (
-                <Button onClick={() => resetForm()} size="icon" type="button" variant="ghost">
-                  <X aria-hidden="true" className="size-4" />
-                  <span className="sr-only">取消编辑</span>
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    className="text-destructive hover:bg-destructive/10"
+                    onClick={() => setTemplateToDelete(editingTemplate)}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Trash2 aria-hidden="true" className="size-4" />
+                    <span className="sr-only">删除评分模板</span>
+                  </Button>
+                  <Button
+                    onClick={() => resetForm()}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <X aria-hidden="true" className="size-4" />
+                    <span className="sr-only">取消编辑</span>
+                  </Button>
+                </div>
               ) : null}
             </div>
 
@@ -547,7 +597,7 @@ export function ScoreTemplateManager() {
                         value={criterion.weight}
                       />
                       <Button
-                        onClick={() => removeCriterion(criterion.id)}
+                        onClick={() => setCriterionToDelete(criterion.id)}
                         size="icon"
                         type="button"
                         variant="ghost"
@@ -626,6 +676,27 @@ export function ScoreTemplateManager() {
           </form>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        isOpen={Boolean(templateToDelete)}
+        onCancel={() => setTemplateToDelete(null)}
+        onConfirm={() => {
+          if (templateToDelete) {
+            void handleDeleteTemplate(templateToDelete);
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(criterionToDelete)}
+        onCancel={() => setCriterionToDelete(null)}
+        onConfirm={() => {
+          if (criterionToDelete) {
+            removeCriterion(criterionToDelete);
+            setCriterionToDelete(null);
+          }
+        }}
+      />
     </main>
   );
 }

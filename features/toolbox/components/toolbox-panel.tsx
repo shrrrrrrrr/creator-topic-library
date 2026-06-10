@@ -28,9 +28,23 @@ const coverColors = [
 ];
 
 const iconSize = {
-  width: 92,
-  height: 104,
+  width: 76,
+  height: 88,
 };
+
+const grid = {
+  columns: 4,
+  rows: 4,
+  startX: 8,
+  startY: 8,
+  gapX: 82,
+  gapY: 92,
+};
+
+const gridSlots = Array.from({ length: grid.columns * grid.rows }, (_, index) => ({
+  x: grid.startX + (index % grid.columns) * grid.gapX,
+  y: grid.startY + Math.floor(index / grid.columns) * grid.gapY,
+}));
 
 type ContextMenuState =
   | {
@@ -74,14 +88,113 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function getInitialPosition(index: number) {
-  const column = index % 3;
-  const row = Math.floor(index / 3);
+function isValidGridIndex(value: unknown) {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value < gridSlots.length
+  );
+}
+
+function getGridIndexFromOptionalFields(icon: ToolboxIcon) {
+  if (isValidGridIndex(icon.gridIndex)) {
+    return icon.gridIndex;
+  }
+
+  if (
+    typeof icon.gridRow === "number" &&
+    typeof icon.gridCol === "number" &&
+    Number.isInteger(icon.gridRow) &&
+    Number.isInteger(icon.gridCol) &&
+    icon.gridRow >= 0 &&
+    icon.gridRow < grid.rows &&
+    icon.gridCol >= 0 &&
+    icon.gridCol < grid.columns
+  ) {
+    return icon.gridRow * grid.columns + icon.gridCol;
+  }
+
+  return null;
+}
+
+function getNearestSlotIndex(position: Pick<ToolboxIcon, "x" | "y">) {
+  let nearestIndex = 0;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  gridSlots.forEach((slot, index) => {
+    const distance = Math.hypot(position.x - slot.x, position.y - slot.y);
+
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+
+  return nearestIndex;
+}
+
+function findAvailableSlotIndex(preferredIndex: number, occupiedSlots: Set<number>) {
+  if (!occupiedSlots.has(preferredIndex)) {
+    return preferredIndex;
+  }
+
+  const preferredSlot = gridSlots[preferredIndex];
+  let nearestOpenIndex = -1;
+  let nearestOpenDistance = Number.POSITIVE_INFINITY;
+
+  gridSlots.forEach((slot, index) => {
+    if (occupiedSlots.has(index)) {
+      return;
+    }
+
+    const distance = Math.hypot(slot.x - preferredSlot.x, slot.y - preferredSlot.y);
+
+    if (distance < nearestOpenDistance) {
+      nearestOpenDistance = distance;
+      nearestOpenIndex = index;
+    }
+  });
+
+  return nearestOpenIndex === -1 ? preferredIndex : nearestOpenIndex;
+}
+
+function withGridPosition(icon: ToolboxIcon, slotIndex: number) {
+  const slot = gridSlots[slotIndex] ?? gridSlots[0];
 
   return {
-    x: 12 + column * 104,
-    y: 12 + row * 116,
+    ...icon,
+    x: slot.x,
+    y: slot.y,
+    gridIndex: slotIndex,
+    gridRow: Math.floor(slotIndex / grid.columns),
+    gridCol: slotIndex % grid.columns,
   };
+}
+
+function normalizeIconsToGrid(nextIcons: ToolboxIcon[]) {
+  const occupiedSlots = new Set<number>();
+
+  return nextIcons.map((icon, index) => {
+    const explicitGridIndex = getGridIndexFromOptionalFields(icon);
+    const preferredIndex =
+      explicitGridIndex ??
+      (icon.x !== 0 || icon.y !== 0
+        ? getNearestSlotIndex(icon)
+        : index % gridSlots.length);
+    const slotIndex = findAvailableSlotIndex(preferredIndex, occupiedSlots);
+
+    occupiedSlots.add(slotIndex);
+
+    return withGridPosition(icon, slotIndex);
+  });
+}
+
+function getNextOpenSlotIndex(currentIcons: ToolboxIcon[]) {
+  const occupiedSlots = new Set(currentIcons.map((icon) => getNearestSlotIndex(icon)));
+  const openSlotIndex = gridSlots.findIndex((_, index) => !occupiedSlots.has(index));
+
+  return openSlotIndex === -1 ? currentIcons.length % gridSlots.length : openSlotIndex;
 }
 
 export function ToolboxPanel() {
@@ -89,7 +202,6 @@ export function ToolboxPanel() {
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const wallpaperInputRef = useRef<HTMLInputElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
-  const suppressOpenRef = useRef<string | null>(null);
   const [icons, setIcons] = useState<ToolboxIcon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -117,18 +229,7 @@ export function ToolboxPanel() {
         ]);
 
         if (isMounted) {
-          setIcons(
-            nextIcons.map((icon, index) => {
-              if (icon.x !== 0 || icon.y !== 0) {
-                return icon;
-              }
-
-              return {
-                ...icon,
-                ...getInitialPosition(index),
-              };
-            })
-          );
+          setIcons(normalizeIconsToGrid(nextIcons));
           setWallpaperUrl(settings.toolboxWallpaperUrl ?? "");
         }
       } catch (error) {
@@ -160,6 +261,12 @@ export function ToolboxPanel() {
   }
 
   function openCreateDialog() {
+    if (icons.length >= gridSlots.length) {
+      setContextMenu(null);
+      setErrorMessage("程序太多了~");
+      return;
+    }
+
     setContextMenu(null);
     setEditingIcon(null);
     setName("");
@@ -247,7 +354,6 @@ export function ToolboxPanel() {
 
     if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {
       dragState.hasMoved = true;
-      suppressOpenRef.current = dragState.iconId;
     }
 
     const nextPosition = getClampedPosition(
@@ -272,7 +378,14 @@ export function ToolboxPanel() {
     event.currentTarget.releasePointerCapture(dragState.pointerId);
     dragStateRef.current = null;
 
+    const movedIcon = icons.find((icon) => icon.id === dragState.iconId);
+
+    if (!movedIcon) {
+      return;
+    }
+
     if (!dragState.hasMoved) {
+      openIcon(movedIcon);
       return;
     }
 
@@ -280,23 +393,56 @@ export function ToolboxPanel() {
       dragState.startIconX + event.clientX - dragState.startPointerX,
       dragState.startIconY + event.clientY - dragState.startPointerY
     );
-    const movedIcon = icons.find((icon) => icon.id === dragState.iconId);
+    const targetSlotIndex = getNearestSlotIndex(finalPosition);
+    const targetSlot = gridSlots[targetSlotIndex] ?? gridSlots[0];
+    const originalSlotIndex = getNearestSlotIndex({
+      x: dragState.startIconX,
+      y: dragState.startIconY,
+    });
+    const originalSlot = gridSlots[originalSlotIndex] ?? gridSlots[0];
+    const targetIcon = icons.find(
+      (icon) =>
+        icon.id !== dragState.iconId && getNearestSlotIndex(icon) === targetSlotIndex
+    );
+    const updates = [
+      {
+        id: movedIcon.id,
+        x: targetSlot.x,
+        y: targetSlot.y,
+      },
+    ];
 
-    if (!movedIcon) {
-      return;
+    if (targetIcon) {
+      updates.push({
+        id: targetIcon.id,
+        x: originalSlot.x,
+        y: originalSlot.y,
+      });
     }
 
     setIcons((currentIcons) =>
-      currentIcons.map((icon) =>
-        icon.id === dragState.iconId ? { ...icon, ...finalPosition } : icon
-      )
+      currentIcons.map((icon) => {
+        if (icon.id === dragState.iconId) {
+          return withGridPosition(icon, targetSlotIndex);
+        }
+
+        if (targetIcon && icon.id === targetIcon.id) {
+          return withGridPosition(icon, originalSlotIndex);
+        }
+
+        return icon;
+      })
     );
 
     try {
-      await updateToolboxIcon(movedIcon.id, {
-        x: finalPosition.x,
-        y: finalPosition.y,
-      });
+      await Promise.all(
+        updates.map((update) =>
+          updateToolboxIcon(update.id, {
+            x: update.x,
+            y: update.y,
+          })
+        )
+      );
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "工具箱位置保存失败。");
     }
@@ -359,14 +505,21 @@ export function ToolboxPanel() {
       return;
     }
 
+    if (!editingIcon && icons.length >= gridSlots.length) {
+      setErrorMessage("程序太多了~");
+      return;
+    }
+
+    const createSlotIndex = getNextOpenSlotIndex(icons);
+    const createSlot = gridSlots[createSlotIndex] ?? gridSlots[0];
     const input = {
       name: normalizedName,
       url: normalizedUrl,
       coverType,
       coverColor: coverType === "color" ? coverColor : "",
       coverImageUrl: coverType === "image" ? coverImageUrl : "",
-      x: editingIcon?.x ?? getInitialPosition(icons.length).x,
-      y: editingIcon?.y ?? getInitialPosition(icons.length).y,
+      x: editingIcon?.x ?? createSlot.x,
+      y: editingIcon?.y ?? createSlot.y,
     };
 
     setIsSaving(true);
@@ -381,7 +534,7 @@ export function ToolboxPanel() {
       } else {
         const createdIcon = await createToolboxIcon(input);
 
-        setIcons((currentIcons) => [createdIcon, ...currentIcons]);
+        setIcons((currentIcons) => normalizeIconsToGrid([createdIcon, ...currentIcons]));
       }
 
       resetDialog();
@@ -412,12 +565,13 @@ export function ToolboxPanel() {
   }
 
   function openIcon(icon: ToolboxIcon) {
-    if (suppressOpenRef.current === icon.id) {
-      suppressOpenRef.current = null;
+    const nextUrl = normalizeUrl(icon.url);
+
+    if (!nextUrl) {
       return;
     }
 
-    window.open(icon.url, "_blank", "noopener,noreferrer");
+    window.open(nextUrl, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -452,7 +606,11 @@ export function ToolboxPanel() {
         ref={desktopRef}
         style={
           wallpaperUrl
-            ? { backgroundImage: `url(${wallpaperUrl})` }
+            ? {
+                backgroundImage: `url(${wallpaperUrl})`,
+                backgroundPosition: "center",
+                backgroundSize: "cover",
+              }
             : undefined
         }
       >
@@ -467,9 +625,8 @@ export function ToolboxPanel() {
 
         {icons.map((icon) => (
           <button
-            className="absolute flex cursor-grab select-none flex-col items-center justify-center gap-2 rounded-lg border border-border bg-card/95 p-3 text-center shadow-sm transition hover:border-primary active:cursor-grabbing"
+            className="absolute flex cursor-grab select-none flex-col items-center justify-center gap-1.5 rounded-lg border border-border bg-card/95 p-2 text-center shadow-sm transition hover:border-primary active:cursor-grabbing"
             key={icon.id}
-            onClick={() => openIcon(icon)}
             onContextMenu={(event) => openIconMenu(event, icon)}
             onPointerDown={(event) => handlePointerDown(event, icon)}
             onPointerMove={handlePointerMove}
@@ -487,13 +644,13 @@ export function ToolboxPanel() {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 alt=""
-                className="size-11 rounded-lg border border-border object-cover shadow-sm"
+                className="size-10 rounded-lg border border-border object-cover object-center shadow-sm"
                 src={icon.coverImageUrl}
               />
             ) : (
               <span
                 aria-hidden="true"
-                className="flex size-11 items-center justify-center rounded-lg text-primary-foreground shadow-sm"
+                className="flex size-10 items-center justify-center rounded-lg text-primary-foreground shadow-sm"
                 style={{ backgroundColor: icon.coverColor ?? "#06b6d4" }}
               >
                 <ExternalLink className="size-5 opacity-90" />
@@ -620,7 +777,7 @@ export function ToolboxPanel() {
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         alt=""
-                        className="size-10 rounded-lg border border-border object-cover"
+                        className="size-10 rounded-lg border border-border object-cover object-center"
                         src={coverImageUrl}
                       />
                     ) : (
